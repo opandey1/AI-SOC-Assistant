@@ -1,0 +1,6 @@
+pip install pandas numpy scikit-learn imbalanced-learn shap langchain langchain-anthropic langchain-openai langchain-community langchain-ollama langgraph matplotlib seaborn requests
+
+pip install -U langchain-ollama
+
+sudo apt-get update && sudo apt-get install -y zstd
+curl -fsSL https://ollama.com/install.sh | sh

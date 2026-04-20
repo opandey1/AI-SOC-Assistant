@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="724" viewBox="0 0 680 724" role="img">
+<title>AI-Powered SOC Assistant — System Architecture</title>
+<desc>Six-phase pipeline: data ingestion, feature engineering, dual ML detection, SHAP explainability, LangGraph ReAct agent, mitigation ticket output.</desc>
+<defs>
+<marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<rect width="680" height="724" fill="#FFFFFF"/>
+<text font-family="Arial,sans-serif" font-size="15" font-weight="bold" fill="#1F2937" x="340" y="22" text-anchor="middle">AI-Powered SOC Assistant — System Architecture</text>
+<text font-family="Arial,sans-serif" font-size="11" fill="#5F5E5A" x="340" y="40" text-anchor="middle">NSL-KDD · Random Forest + Isolation Forest · SHAP · LangGraph · Ollama / Claude / GPT-4</text>
+<rect x="30" y="52" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
+<path fill="#0F6E56" d="M40,52 L640,52 Q650,52 650,62 L650,78 L30,78 L30,62 Q30,52 40,52 Z"/>
+<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="69" text-anchor="middle" dominant-baseline="central">Phase 1 — Data Ingestion</text>
+<rect x="40" y="84" width="186" height="30" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#085041" x="133" y="99" text-anchor="middle" dominant-baseline="central">NSL-KDD / CICIDS</text>
+<rect x="246" y="84" width="186" height="30" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#085041" x="339" y="99" text-anchor="middle" dominant-baseline="central">Live PCAP / Zeek</text>
+<rect x="452" y="84" width="186" height="30" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#085041" x="545" y="99" text-anchor="middle" dominant-baseline="central">Suricata / syslog</text>
+<line x1="220" y1="132" x2="220" y2="148" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
+<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="143" text-anchor="start">Raw network flow features (41 cols)</text>
+<rect x="30" y="152" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
+<path fill="#185FA5" d="M40,152 L640,152 Q650,152 650,162 L650,178 L30,178 L30,162 Q30,152 40,152 Z"/>
+<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="169" text-anchor="middle" dominant-baseline="central">Phase 2 — Feature Engineering &amp; Preprocessing</text>
+<rect x="40" y="184" width="186" height="30" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#0C447C" x="133" y="199" text-anchor="middle" dominant-baseline="central">OHE encoding</text>
+<rect x="246" y="184" width="186" height="30" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#0C447C" x="339" y="199" text-anchor="middle" dominant-baseline="central">StandardScaler</text>
+<rect x="452" y="184" width="186" height="30" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#0C447C" x="545" y="199" text-anchor="middle" dominant-baseline="central">SMOTE balancing</text>
+<line x1="220" y1="232" x2="220" y2="250" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
+<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="243" text-anchor="start">Scaled &amp; balanced feature vectors</text>
+<rect x="30" y="254" width="620" height="108" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
+<path fill="#534AB7" d="M40,254 L640,254 Q650,254 650,264 L650,280 L30,280 L30,264 Q30,254 40,254 Z"/>
+<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="271" text-anchor="middle" dominant-baseline="central">Phase 3 — Dual ML Detection Layer</text>
+<rect x="40" y="286" width="290" height="30" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#3C3489" x="185" y="301" text-anchor="middle" dominant-baseline="central">Random Forest — 5-class supervised</text>
+<rect x="340" y="286" width="290" height="30" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#3C3489" x="485" y="301" text-anchor="middle" dominant-baseline="central">Isolation Forest — zero-day anomaly</text>
+<rect x="110" y="322" width="460" height="30" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#3C3489" x="340" y="337" text-anchor="middle" dominant-baseline="central">Confidence score fusion — RF 60% + ISO 40%</text>
+<line x1="220" y1="368" x2="220" y2="380" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
+<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="376" text-anchor="start">Attack class + anomaly score + confidence</text>
+<rect x="30" y="384" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
+<path fill="#854F0B" d="M40,384 L640,384 Q650,384 650,394 L650,410 L30,410 L30,394 Q30,384 40,384 Z"/>
+<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="401" text-anchor="middle" dominant-baseline="central">Phase 4 — SHAP Explainability</text>
+<rect x="40" y="416" width="186" height="30" rx="6" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#854F0B" x="133" y="431" text-anchor="middle" dominant-baseline="central">SHAP TreeExplainer</text>
+<rect x="246" y="416" width="186" height="30" rx="6" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#854F0B" x="339" y="431" text-anchor="middle" dominant-baseline="central">Top-8 feature drivers</text>
+<rect x="452" y="416" width="186" height="30" rx="6" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#854F0B" x="545" y="431" text-anchor="middle" dominant-baseline="central">JSON context bundle</text>
+<line x1="220" y1="464" x2="220" y2="484" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
+<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="476" text-anchor="start">Structured SHAP context bundle (JSON)</text>
+<rect x="30" y="488" width="620" height="108" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
+<path fill="#993C1D" d="M40,488 L640,488 Q650,488 650,498 L650,514 L30,514 L30,498 Q30,488 40,488 Z"/>
+<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="505" text-anchor="middle" dominant-baseline="central">Phase 5 — LangGraph ReAct Agent</text>
+<rect x="40" y="520" width="186" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="133" y="534" text-anchor="middle" dominant-baseline="central">Ollama — local / air-gap</text>
+<rect x="246" y="520" width="186" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="339" y="534" text-anchor="middle" dominant-baseline="central">Anthropic Claude API</text>
+<rect x="452" y="520" width="186" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="545" y="534" text-anchor="middle" dominant-baseline="central">OpenAI GPT-4 API</text>
+<rect x="40" y="554" width="290" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="185" y="568" text-anchor="middle" dominant-baseline="central">AbuseIPDB reputation tool</text>
+<rect x="340" y="554" width="290" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="485" y="568" text-anchor="middle" dominant-baseline="central">NIST NVD CVE lookup tool</text>
+<line x1="220" y1="602" x2="220" y2="614" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
+<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="610" text-anchor="start">Formatted incident ticket</text>
+<rect x="30" y="618" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
+<path fill="#3B6D11" d="M40,618 L640,618 Q650,618 650,628 L650,644 L30,644 L30,628 Q30,618 40,618 Z"/>
+<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="635" text-anchor="middle" dominant-baseline="central">Phase 6 — Mitigation Ticket Output</text>
+<rect x="40" y="650" width="186" height="30" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#27500A" x="133" y="665" text-anchor="middle" dominant-baseline="central">Incident summary</text>
+<rect x="246" y="650" width="186" height="30" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#27500A" x="339" y="665" text-anchor="middle" dominant-baseline="central">SHAP evidence</text>
+<rect x="452" y="650" width="186" height="30" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
+<text font-family="Arial,sans-serif" font-size="11" fill="#27500A" x="545" y="665" text-anchor="middle" dominant-baseline="central">Jira / ServiceNow</text>
+<text font-family="Arial,sans-serif" font-size="10" fill="#B4B2A9" x="340" y="706" text-anchor="middle">github.com/your-handle/soc-assistant · NSL-KDD · MIT License</text>
+</svg>

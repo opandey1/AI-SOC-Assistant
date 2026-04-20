@@ -1,0 +1,12 @@
+# Ignore Data and Models
+data/*.txt
+data/*.csv
+models/*.pkl
+
+# Ignore Environment Variables (API Keys)
+.env
+
+# Ignore Python Caches
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
