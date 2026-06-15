@@ -6,23 +6,19 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.agent import generate_incident_ticket
-from src.explain import build_explainer, explain_connection
-from src.ingest import LABEL_MAP, dataset_summary, load_nsl_kdd
-from src.preprocess import PreprocessedData, preprocess_dataset
-from src.train import TrainedModels, train_models
 
-
-def select_connection_index(models: TrainedModels, row_index: int | None = None) -> int:
+def select_connection_index(models: Any, row_index: int | None = None) -> int:
     """Select a requested row, or the first fused anomaly in the test set."""
+
+    import numpy as np
 
     if row_index is not None:
         if row_index < 0 or row_index >= len(models.fused_anomaly):
@@ -36,15 +32,21 @@ def select_connection_index(models: TrainedModels, row_index: int | None = None)
 
 
 def process_connection(
-    raw_row: pd.Series,
+    raw_row: "pd.Series",
     *,
-    data: PreprocessedData,
-    models: TrainedModels,
+    data: Any,
+    models: Any,
     explainer: Any,
     src_ip: str | None = None,
     provider: str | None = None,
 ) -> str:
     """Classify one processed connection row and return an SOC ticket or normal verdict."""
+
+    import pandas as pd
+
+    from src.agent import generate_incident_ticket
+    from src.explain import explain_connection
+    from src.ingest import LABEL_MAP
 
     row_df = pd.DataFrame([raw_row], columns=data.feature_names)
     row_scaled = data.scaler.transform(row_df)[0]
@@ -107,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_pipeline(args: argparse.Namespace) -> str:
+    from src.explain import build_explainer
+    from src.ingest import dataset_summary, load_nsl_kdd
+    from src.preprocess import preprocess_dataset
+    from src.train import train_models
+
     project_root = Path(__file__).resolve().parents[1]
     dataset = load_nsl_kdd(args.train, args.test, search_roots=[project_root, Path.cwd()])
     print(dataset_summary(dataset))

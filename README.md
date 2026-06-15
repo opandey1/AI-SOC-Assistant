@@ -1,54 +1,147 @@
-![Python](https://img.shields.io/badge/python-3.10+-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Dataset](https://img.shields.io/badge/dataset-NSL--KDD-purple)
+# AI-Powered SOC Assistant
 
-# AI-Powered SOC Assistant: Architectural Evolution & Wins
+An explainable AI triage pipeline that classifies NSL-KDD network connections, fuses supervised and unsupervised anomaly signals, and generates analyst-ready SOC incident tickets with GenAI.
 
-This document outlines the iterative engineering improvements, architectural pivots, and prompt engineering refinements made to transition the AI-Powered SOC Assistant from an educational notebook into a production-ready, enterprise-grade threat hunting pipeline.
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Dataset](https://img.shields.io/badge/dataset-NSL--KDD-purple)](https://www.unb.ca/cic/datasets/nsl.html)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/opandey1/AI-SOC-Assistant/blob/main/notebooks/AI_Powered_SOC_Assistant.ipynb)
 
-This repo implements a full SOC triage pipeline — from raw NSL-KDD logs through a dual-ML detection layer to a GenAI-generated incident ticket. Designed for security engineers who want explainable, production-ready anomaly detection without external API dependencies.
+![System Architecture](docs/soc_architecture.svg)
+
+## Why This Is Different
+
+- **Native multi-class SOC detection:** Unlike binary anomaly demos, this pipeline classifies specific attack families: Normal, DoS, Probe, R2L, and U2R.
+- **Dual-model triage:** A Random Forest predicts the attack family while an Isolation Forest adds an unsupervised anomaly signal for suspicious traffic patterns.
+- **Explainable evidence:** SHAP identifies the strongest feature drivers for each flagged connection and passes analyst-readable values into the ticket.
+- **Local-first GenAI:** Ollama support lets the assistant generate tickets without sending raw network telemetry to an external LLM API.
+- **Operational output:** The final response is a structured incident ticket with containment steps and copy-pasteable Splunk SPL queries.
+
+## Quickstart
+
+```bash
+git clone https://github.com/opandey1/AI-SOC-Assistant.git
+cd AI-SOC-Assistant
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Place `KDDTrain+.txt` and `KDDTest+.txt` in the repo root or `data/`, then run a no-LLM smoke test:
+
+```bash
+python src/pipeline.py --no-llm
+```
+
+To generate the ticket with a local Ollama model:
+
+```bash
+ollama pull mistral
 SOC_LLM_PROVIDER=ollama python src/pipeline.py
+```
 
-![System Architecture](data/soc_architecture.svg)
+PowerShell users can set the provider like this:
 
-## 1. Feature Engineering: Robust Categorical Encoding
-* **Initial State:** The pipeline used `LabelEncoder` for categorical network features (protocol, service, flag).
-* **The Challenge:** `LabelEncoder` creates false mathematical ordinals (e.g., instructing the model that TCP > UDP), which confuses tree-based models. Furthermore, it causes fatal crashes if live traffic introduces a novel/zero-day service not seen in the training data.
-* **The Fix:** Migrated the preprocessing pipeline to `OneHotEncoder(handle_unknown='ignore')`.
-* **The Win:** Achieved mathematically sound feature scaling and a fault-tolerant pipeline that safely ignores novel services in production rather than throwing execution errors.
+```powershell
+$env:SOC_LLM_PROVIDER = "ollama"
+python src/pipeline.py
+```
 
-## 2. Agent Orchestration: Migrating to LangGraph
-* **Initial State:** Utilized LangChain's legacy `AgentExecutor`.
-* **The Challenge:** `AgentExecutor` was deprecated in LangChain 0.3+. It lacked stateful memory and robust error recovery for complex tool-calling loops.
-* **The Fix:** Implemented `langgraph.prebuilt.create_react_agent`.
-* **The Win:** Future-proofed the orchestration layer with state-of-the-art React agent patterns, enabling reliable handling of dynamic API tool outputs.
+## Repository Structure
 
-## 3. Environment Constraints: Air-Gapped LLM Execution
-* **Initial State:** Hardcoded Anthropic Claude API calls.
-* **The Challenge:** Enterprise SOCs often operate in air-gapped environments or have strict compliance frameworks preventing the transmission of raw network logs (PCAPs, internal IPs) to external cloud providers.
-* **The Fix:** Abstracted the LLM initialization with a provider factory (`initialize_llm`), integrating the `langchain-ollama` package to run local models (Mistral / Llama 3) directly alongside the pipeline.
-* **The Win:** Achieved 100% data privacy and compliance readiness, ensuring the pipeline can be deployed in highly restricted network environments.
+```text
+src/
+  ingest.py       NSL-KDD loading and attack-family mapping
+  preprocess.py   one-hot encoding, scaling, and SMOTE balancing
+  train.py        Random Forest, Isolation Forest, and fused scoring
+  explain.py      SHAP explanation bundle generation
+  agent.py        LangGraph SOC analyst agent and threat-intel tools
+  pipeline.py     runnable command-line pipeline
+notebooks/
+  AI_Powered_SOC_Assistant.ipynb
+docs/
+  soc_architecture.svg
+  SOC_Assistant_Evolution.pdf
+  shap_example_output.json
+  sample_ticket.md
+```
 
-## 4. Threat Intel Integration: Fault-Tolerant API Tools
-* **Initial State:** Dummy `@tool` functions returning static strings.
-* **The Challenge:** Real-world threat intel APIs (AbuseIPDB, NVD) experience latency, rate-limiting, and deep nested JSON responses that can easily blow out an LLM's context window.
-* **The Fix:** Built production-grade `requests` calls with 5-10 second timeouts, explicit try/except blocks returning string errors to the LLM, and JSON payload truncation (limiting NVD lookups to the top 3 CVEs).
-* **The Win:** If an API goes down, the agent gracefully notes the failure in the incident ticket instead of crashing the Python process. The context window is strictly managed to control token costs and inference speed.
+## Demo Artifacts
 
-## 5. Explainable AI (XAI): Cross-Version SHAP Compatibility
-* **Initial State:** Hardcoded extraction of `shap_values` based on legacy 1D list structures (`shap_vals[prediction][0]`).
-* **The Challenge:** Package updates to the `shap` library changed the output schema for multi-class tree explainers to 3D arrays `(n_samples, n_features, n_classes)`.
-* **The Fix:** Wrote dynamic shape-handling logic to natively support both legacy lists and modern NumPy 3D array outputs.
-* **The Win:** Flawless cross-environment compatibility regardless of the host machine's dependency versions.
+- [Architecture diagram](docs/soc_architecture.svg)
+- [Evolution brief](docs/SOC_Assistant_Evolution.pdf)
+- [Example SHAP bundle](docs/shap_example_output.json)
+- [Sample generated ticket](docs/sample_ticket.md)
+- [Colab notebook](notebooks/AI_Powered_SOC_Assistant.ipynb)
 
-## 6. Forensic Accuracy: Real-World Metrics vs. Z-Scores
-* **Initial State:** The SHAP explanation JSON bundle passed `StandardScaler` z-scores to the LLM (e.g., "Connection count is 1.265").
-* **The Challenge:** LLMs cannot intuitively interpret z-scores, resulting in hallucinatory analysis. SOC analysts require literal packet counts and byte sizes to author effective firewall rules.
-* **The Fix:** Split the data flow in `process_connection`. The scaled array is routed to the Random Forest for prediction, while the *original, unscaled DataFrame row* is routed to the SHAP JSON bundle.
-* **The Win:** The GenAI ticket cites mathematically accurate, real-world telemetry (e.g., "Source sent 487,000 bytes - 97x above normal"), making it forensically valid.
+## Evolution & Wins
 
-## 7. GenAI Guardrails: Eliminating Hallucinations & Over-Generation
-* **Initial State:** Local models (Mistral) hallucinated Python execution scripts at the end of the ticket and lazily printed raw 15-decimal SHAP floats.
-* **The Challenge:** Smaller next-token predictor models struggle with stopping criteria and often "tell instead of show" when asked for SIEM queries.
-* **The Fix:** Applied strict negative constraints to the `SYSTEM_PROMPT`. Mandated that executable Splunk SPL queries be wrapped in markdown code blocks and instituted a strict rule banning raw `shap_value` float outputs.
-* **The Win:** The agent now functions as a true translation layer, synthesizing raw ML outputs into highly readable, actionable incident tickets with copy-pasteable SIEM queries.
+### 1. Feature Engineering: Robust Categorical Encoding
+
+**Initial state:** The pipeline used `LabelEncoder` for categorical network features such as protocol, service, and flag.
+
+**Challenge:** `LabelEncoder` creates false mathematical ordinals and can crash when live traffic introduces a category not seen during training.
+
+**Fix:** The preprocessing pipeline now uses `OneHotEncoder(handle_unknown="ignore")`.
+
+**Win:** The feature representation is mathematically sound and resilient to novel service values.
+
+### 2. Agent Orchestration: Migrating to LangGraph
+
+**Initial state:** The assistant logic relied on older LangChain agent patterns.
+
+**Challenge:** Modern tool-calling workflows benefit from clearer state handling and more reliable agent execution.
+
+**Fix:** The agent layer uses `langgraph.prebuilt.create_react_agent`.
+
+**Win:** The orchestration layer is more maintainable and better aligned with current LangChain/LangGraph patterns.
+
+### 3. Environment Constraints: Air-Gapped LLM Execution
+
+**Initial state:** LLM usage was tied to cloud provider calls.
+
+**Challenge:** SOC environments often restrict transmission of raw telemetry, internal IPs, and security logs to external APIs.
+
+**Fix:** `initialize_llm` supports a provider factory with Ollama, OpenAI, Anthropic, and template modes.
+
+**Win:** The pipeline can run locally with Ollama for privacy-sensitive demos and restricted environments.
+
+### 4. Threat Intel Integration: Fault-Tolerant API Tools
+
+**Initial state:** Threat-intelligence tools were placeholders.
+
+**Challenge:** Real APIs can fail, rate-limit, or return verbose nested payloads that overwhelm the LLM context.
+
+**Fix:** AbuseIPDB and NVD lookups use timeouts, explicit error handling, and compact response formatting.
+
+**Win:** API failures become ticket context instead of Python process failures.
+
+### 5. Explainable AI: Cross-Version SHAP Compatibility
+
+**Initial state:** SHAP extraction assumed one output shape.
+
+**Challenge:** SHAP has changed multi-class output formats across versions.
+
+**Fix:** The explanation layer handles both legacy list outputs and newer 3D array outputs.
+
+**Win:** The code is more portable across dependency versions.
+
+### 6. Forensic Accuracy: Real-World Metrics
+
+**Initial state:** The explanation bundle risked exposing scaled z-score values to the LLM.
+
+**Challenge:** SOC analysts need real packet, byte, count, and rate values, not normalized model inputs.
+
+**Fix:** Model inference still uses scaled values, while SHAP evidence includes the unscaled processed feature values.
+
+**Win:** Generated tickets read like analyst evidence rather than model internals.
+
+### 7. GenAI Guardrails: Eliminating Hallucinations & Over-Generation
+
+**Initial state:** Smaller local models could drift into code snippets or raw floating-point SHAP values.
+
+**Challenge:** The assistant must produce a tight incident ticket, not a generic explanation or script.
+
+**Fix:** The system prompt enforces ticket-only output, structured sections, exact Splunk SPL code blocks, and a ban on raw SHAP float leakage.
+
+**Win:** The GenAI layer translates model evidence into actionable SOC workflow output.

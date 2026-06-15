@@ -1,0 +1,57 @@
+{
+  "predicted_class": "dos",
+  "rf_confidence": 0.9821,
+  "isolation_forest_score": -0.1342,
+  "source_ip": "192.168.1.47",
+  "top_shap_drivers": [
+    {
+      "feature": "service_http",
+      "true_value": 1,
+      "shap_value": 0.1473,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "count",
+      "true_value": 511,
+      "shap_value": 0.1128,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "srv_count",
+      "true_value": 511,
+      "shap_value": 0.0849,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "same_srv_rate",
+      "true_value": 1.0,
+      "shap_value": 0.0634,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "dst_host_srv_count",
+      "true_value": 255,
+      "shap_value": 0.0582,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "dst_bytes",
+      "true_value": 0,
+      "shap_value": 0.0419,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "logged_in",
+      "true_value": 0,
+      "shap_value": 0.0286,
+      "direction": "increases risk"
+    },
+    {
+      "feature": "serror_rate",
+      "true_value": 0.0,
+      "shap_value": -0.0214,
+      "direction": "decreases risk"
+    }
+  ],
+  "base_value": 0.1642
+}

@@ -1,0 +1,14 @@
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+
+*.md text eol=lf
+*.py text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.svg text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.gitattributes text eol=lf
