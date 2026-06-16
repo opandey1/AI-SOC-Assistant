@@ -1,0 +1,13 @@
+[flake8]
+max-line-length = 100
+# Black owns line length and formatting; E501/E203/W503 conflict with it and
+# with intentionally long string literals (prompts, SPL templates).
+extend-ignore = E203, E501, W503
+exclude =
+    .git,
+    .venv,
+    venv,
+    __pycache__,
+    notebooks,
+    build,
+    dist

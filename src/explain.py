@@ -76,7 +76,11 @@ def explain_connection(
     drivers: list[dict[str, Any]] = []
     for feature_idx in top_idx:
         feature = feature_names[feature_idx]
-        raw_value = raw_row_df.iloc[0][feature] if feature in raw_row_df.columns else raw_row_df.iloc[0, feature_idx]
+        raw_value = (
+            raw_row_df.iloc[0][feature]
+            if feature in raw_row_df.columns
+            else raw_row_df.iloc[0, feature_idx]
+        )
         shap_value = float(class_shap[feature_idx])
         drivers.append(
             {
@@ -88,7 +92,9 @@ def explain_connection(
         )
 
     row_proba = random_forest.predict_proba(row_scaled_2d)[0]
-    predicted_class = CLASS_NAMES[prediction] if prediction < len(CLASS_NAMES) else f"class_{prediction}"
+    predicted_class = (
+        CLASS_NAMES[prediction] if prediction < len(CLASS_NAMES) else f"class_{prediction}"
+    )
 
     return {
         "predicted_class": predicted_class,

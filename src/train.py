@@ -98,7 +98,9 @@ def score_models(
     iso_predictions = isolation_forest.predict(data.x_test_scaled)
     iso_normalized = _normalize_isolation_scores(iso_scores)
 
-    fused_anomaly = ((rf_predictions != LABEL_MAP["normal"]) | (iso_normalized > isolation_threshold)).astype(int)
+    fused_anomaly = (
+        (rf_predictions != LABEL_MAP["normal"]) | (iso_normalized > isolation_threshold)
+    ).astype(int)
     fused_confidence = 0.6 * rf_confidence + 0.4 * iso_normalized
 
     return TrainedModels(

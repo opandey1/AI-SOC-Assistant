@@ -81,8 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--train", type=Path, help="Path to KDDTrain+.txt.")
     parser.add_argument("--test", type=Path, help="Path to KDDTest+.txt.")
-    parser.add_argument("--row-index", type=int, help="Specific test-set row to process. Defaults to first anomaly.")
-    parser.add_argument("--src-ip", default="192.168.1.47", help="Source IP to include in the generated ticket.")
+    parser.add_argument(
+        "--row-index", type=int, help="Specific test-set row to process. Defaults to first anomaly."
+    )
+    parser.add_argument(
+        "--src-ip", default="192.168.1.47", help="Source IP to include in the generated ticket."
+    )
     parser.add_argument(
         "--provider",
         default=os.getenv("SOC_LLM_PROVIDER", "ollama"),
@@ -119,7 +123,9 @@ def run_pipeline(args: argparse.Namespace) -> str:
     print(dataset_summary(dataset))
 
     data = preprocess_dataset(dataset, use_smote=not args.no_smote)
-    print(f"Prepared {len(data.feature_names):,} model features. SMOTE applied: {data.smote_applied}.")
+    print(
+        f"Prepared {len(data.feature_names):,} model features. SMOTE applied: {data.smote_applied}."
+    )
 
     models = train_models(data, isolation_threshold=args.isolation_threshold)
     selected_index = select_connection_index(models, args.row_index)

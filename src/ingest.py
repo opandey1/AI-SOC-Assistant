@@ -8,7 +8,6 @@ from typing import Iterable
 
 import pandas as pd
 
-
 NSL_KDD_COLUMNS = [
     "duration",
     "protocol_type",
@@ -153,7 +152,9 @@ def resolve_dataset_paths(
     if search_roots is not None:
         roots.extend(Path(root) for root in search_roots)
 
-    resolved_train = Path(train_path) if train_path else _first_existing_path("KDDTrain+.txt", roots)
+    resolved_train = (
+        Path(train_path) if train_path else _first_existing_path("KDDTrain+.txt", roots)
+    )
     resolved_test = Path(test_path) if test_path else _first_existing_path("KDDTest+.txt", roots)
 
     missing = []
