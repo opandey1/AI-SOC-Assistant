@@ -7,9 +7,9 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
-from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+# NOTE: ``requests``, ``langchain`` and ``langgraph`` are imported lazily inside the
+# functions that need them. This keeps the deterministic ``template`` / ``--no-llm``
+# path (and the unit-test suite and CI) importable without the heavy LLM dependencies.
 
 
 SYSTEM_PROMPT = """You are a Tier-2 SOC analyst assistant.
@@ -29,9 +29,10 @@ CRITICAL INSTRUCTIONS:
 """
 
 
-@tool
 def lookup_ip_reputation(ip_address: str) -> str:
     """Query AbuseIPDB for IP address reputation."""
+
+    import requests
 
     api_key = os.getenv("ABUSEIPDB_API_KEY")
     if not api_key:
@@ -53,9 +54,10 @@ def lookup_ip_reputation(ip_address: str) -> str:
         return f"Failed to retrieve IP reputation for {ip_address}. Network/API Error: {exc}"
 
 
-@tool
 def lookup_cve(service_name: str) -> str:
     """Query NIST NVD for recent CVEs related to a service name."""
+
+    import requests
 
     url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
     querystring = {"keywordSearch": service_name, "resultsPerPage": 3}
@@ -72,7 +74,11 @@ def lookup_cve(service_name: str) -> str:
             cve = item.get("cve", {})
             cve_id = cve.get("id", "Unknown ID")
             description = next(
-                (desc.get("value", "") for desc in cve.get("descriptions", []) if desc.get("lang") == "en"),
+                (
+                    desc.get("value", "")
+                    for desc in cve.get("descriptions", [])
+                    if desc.get("lang") == "en"
+                ),
                 "No description.",
             )
             description = " ".join(description.split())
@@ -101,7 +107,10 @@ def initialize_llm(provider: str = "ollama") -> Any:
         from langchain_ollama import ChatOllama
 
         model = os.getenv("SOC_OLLAMA_MODEL", "mistral")
-        return ChatOllama(model=model, temperature=0.2)
+        # Allow pointing at an Ollama server in another host/container (Docker Compose).
+        base_url = os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_HOST")
+        kwargs = {"base_url": base_url} if base_url else {}
+        return ChatOllama(model=model, temperature=0.2, **kwargs)
 
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
@@ -109,9 +118,13 @@ def initialize_llm(provider: str = "ollama") -> Any:
 def build_agent(provider: str | None = None) -> Any:
     """Build a LangGraph ReAct SOC analyst agent."""
 
+    from langchain_core.tools import tool
+    from langgraph.prebuilt import create_react_agent
+
     active_provider = provider or os.getenv("SOC_LLM_PROVIDER", "ollama")
     llm = initialize_llm(active_provider)
-    return create_react_agent(llm, [lookup_ip_reputation, lookup_cve], prompt=SYSTEM_PROMPT)
+    tools = [tool(lookup_ip_reputation), tool(lookup_cve)]
+    return create_react_agent(llm, tools, prompt=SYSTEM_PROMPT)
 
 
 def _percent(value: float | int | None) -> str:
@@ -140,7 +153,9 @@ def render_template_ticket(
         value = driver.get("true_value", "unknown")
         direction = driver.get("direction", "influences risk")
         evidence_lines.append(f"- {feature}: observed value {value} {direction}.")
-    evidence = "\n".join(evidence_lines) if evidence_lines else "- No SHAP driver details were available."
+    evidence = (
+        "\n".join(evidence_lines) if evidence_lines else "- No SHAP driver details were available."
+    )
 
     return f"""1. Incident Summary
 Connection telemetry from {source_ip} was flagged as suspicious at {detected_at}. The detector classified the activity as {predicted_class} with {confidence} Random Forest confidence, requiring analyst validation and containment triage.
