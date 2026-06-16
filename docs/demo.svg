@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 626" width="820" height="626" font-family="SFMono-Regular,Consolas,Menlo,monospace" font-size="15">
+<style>
+@keyframes l0{0%,3.08%{opacity:0}3.68%,100%{opacity:1}}
+@keyframes l1{0%,6.16%{opacity:0}6.76%,100%{opacity:1}}
+@keyframes l2{0%,9.25%{opacity:0}9.85%,100%{opacity:1}}
+@keyframes l3{0%,12.34%{opacity:0}12.94%,100%{opacity:1}}
+@keyframes l4{0%,15.43%{opacity:0}16.03%,100%{opacity:1}}
+@keyframes l5{0%,18.52%{opacity:0}19.12%,100%{opacity:1}}
+@keyframes l6{0%,21.61%{opacity:0}22.21%,100%{opacity:1}}
+@keyframes l7{0%,24.69%{opacity:0}25.29%,100%{opacity:1}}
+@keyframes l8{0%,27.78%{opacity:0}28.38%,100%{opacity:1}}
+@keyframes l9{0%,30.87%{opacity:0}31.47%,100%{opacity:1}}
+@keyframes l10{0%,33.96%{opacity:0}34.56%,100%{opacity:1}}
+@keyframes l11{0%,37.05%{opacity:0}37.65%,100%{opacity:1}}
+@keyframes l12{0%,40.14%{opacity:0}40.74%,100%{opacity:1}}
+@keyframes l13{0%,43.22%{opacity:0}43.82%,100%{opacity:1}}
+@keyframes l14{0%,46.31%{opacity:0}46.91%,100%{opacity:1}}
+@keyframes l15{0%,49.40%{opacity:0}50.00%,100%{opacity:1}}
+@keyframes l16{0%,52.49%{opacity:0}53.09%,100%{opacity:1}}
+@keyframes l17{0%,55.58%{opacity:0}56.18%,100%{opacity:1}}
+@keyframes l18{0%,58.66%{opacity:0}59.26%,100%{opacity:1}}
+@keyframes l19{0%,61.75%{opacity:0}62.35%,100%{opacity:1}}
+@keyframes l20{0%,64.84%{opacity:0}65.44%,100%{opacity:1}}
+@keyframes l21{0%,67.93%{opacity:0}68.53%,100%{opacity:1}}
+@keyframes l22{0%,71.02%{opacity:0}71.62%,100%{opacity:1}}
+@keyframes l23{0%,74.11%{opacity:0}74.71%,100%{opacity:1}}
+@keyframes l24{0%,77.19%{opacity:0}77.79%,100%{opacity:1}}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+.cur{animation:blink 1s steps(1) infinite}
+</style>
+<rect x="0" y="0" width="820" height="626" rx="10" fill="#0d1117"/>
+<rect x="0" y="0" width="820" height="34" rx="10" fill="#161b22"/>
+<rect x="0" y="24" width="820" height="10" fill="#161b22"/>
+<circle cx="20" cy="17" r="6" fill="#ff5f56"/>
+<circle cx="40" cy="17" r="6" fill="#ffbd2e"/>
+<circle cx="60" cy="17" r="6" fill="#27c93f"/>
+<text x="410" y="22" fill="#8b949e" font-size="13" text-anchor="middle">AI-SOC-Assistant — python src/pipeline.py --no-llm</text>
+<text x="22" y="52" style="animation:l0 13.6s ease-out infinite"><tspan fill="#7ee787">$ </tspan><tspan fill="#e6e6e6">python src/pipeline.py --no-llm</tspan></text>
+<text x="22" y="74" fill="#b8c0cc" style="animation:l1 13.6s ease-out infinite">Loaded 125,973 training rows and 22,544 test rows.</text>
+<text x="22" y="96" fill="#b8c0cc" style="animation:l2 13.6s ease-out infinite">Prepared 122 model features. SMOTE applied: True.</text>
+<text x="22" y="118" fill="#b8c0cc" style="animation:l3 13.6s ease-out infinite">Selected test row: 0</text>
+<text x="22" y="140" fill="#b8c0cc" style="animation:l4 13.6s ease-out infinite"></text>
+<text x="22" y="162" fill="#7ee787" style="animation:l5 13.6s ease-out infinite">=== SOC Incident Ticket ===</text>
+<text x="22" y="184" fill="#b8c0cc" style="animation:l6 13.6s ease-out infinite"></text>
+<text x="22" y="206" fill="#79c0ff" style="animation:l7 13.6s ease-out infinite">1. Incident Summary</text>
+<text x="47" y="228" fill="#b8c0cc" style="animation:l8 13.6s ease-out infinite">Connection from 192.168.1.47 flagged as suspicious;</text>
+<text x="47" y="250" fill="#b8c0cc" style="animation:l9 13.6s ease-out infinite">classified as dos with 99.9% Random Forest confidence.</text>
+<text x="22" y="272" fill="#b8c0cc" style="animation:l10 13.6s ease-out infinite"></text>
+<text x="22" y="294" fill="#79c0ff" style="animation:l11 13.6s ease-out infinite">2. Attack Classification</text>
+<text x="47" y="316" fill="#ffd166" style="animation:l12 13.6s ease-out infinite">Type: dos    Confidence: 99.9%</text>
+<text x="22" y="338" fill="#b8c0cc" style="animation:l13 13.6s ease-out infinite"></text>
+<text x="22" y="360" fill="#79c0ff" style="animation:l14 13.6s ease-out infinite">3. Why flagged - Evidence</text>
+<text x="47" y="382" fill="#b8c0cc" style="animation:l15 13.6s ease-out infinite">- count: observed value 229.0 increases risk.</text>
+<text x="47" y="404" fill="#b8c0cc" style="animation:l16 13.6s ease-out infinite">- flag_SF: observed value 0.0 increases risk.</text>
+<text x="47" y="426" fill="#b8c0cc" style="animation:l17 13.6s ease-out infinite">- dst_host_rerror_rate: observed value 1.0 increases risk.</text>
+<text x="22" y="448" fill="#b8c0cc" style="animation:l18 13.6s ease-out infinite"></text>
+<text x="22" y="470" fill="#79c0ff" style="animation:l19 13.6s ease-out infinite">5. Investigation Queries</text>
+<text x="47" y="492" fill="#56d4dd" style="animation:l20 13.6s ease-out infinite">index=network sourcetype=firewall src_ip="192.168.1.47"</text>
+<text x="47" y="514" fill="#56d4dd" style="animation:l21 13.6s ease-out infinite">| stats count, values(dest_ip), values(dest_port) by src_ip</text>
+<text x="22" y="536" fill="#b8c0cc" style="animation:l22 13.6s ease-out infinite"></text>
+<text x="22" y="558" fill="#79c0ff" style="animation:l23 13.6s ease-out infinite">6. Escalation Recommendation</text>
+<text x="47" y="580" fill="#b8c0cc" style="animation:l24 13.6s ease-out infinite">P2 - Escalate to SOC lead if not approved activity.</text>
+<rect class="cur" x="22" y="588" width="9" height="16" fill="#7ee787"/>
+</svg>
