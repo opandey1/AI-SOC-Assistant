@@ -1,32 +1,39 @@
-# Two-container stack: the SOC pipeline plus a local Ollama LLM server.
-#
-# First-time setup (pull the model into the persistent Ollama volume):
-#   docker compose up -d ollama
-#   docker compose exec ollama ollama pull mistral
-#
-# Generate a ticket with the local model (raw telemetry never leaves the host):
+# Default: deterministic template mode with networking disabled.
 #   docker compose run --rm soc-assistant
 #
-# Or run the offline template path (no model needed):
-#   docker compose run --rm soc-assistant python src/pipeline.py --no-llm
+# Optional local-LLM profile:
+#   docker compose --profile local-llm up -d ollama
+#   docker compose --profile local-llm exec ollama ollama pull mistral
+#   docker compose --profile local-llm run --rm soc-assistant-ollama
 
 services:
+  soc-assistant:
+    build: .
+    container_name: soc-assistant
+    environment:
+      SOC_ENABLE_THREAT_INTEL: "false"
+    volumes:
+      - ./data:/app/data:ro
+    network_mode: none
+    command: ["python", "-m", "src.pipeline", "--no-llm"]
+
   ollama:
-    image: ollama/ollama:latest
-    container_name: soc-ollama
+    image: ollama/ollama:0.32.5
+    profiles: ["local-llm"]
     ports:
-      - "11434:11434"
+      # Keep the local model API off external interfaces.
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
 
-  soc-assistant:
+  soc-assistant-ollama:
     build: .
-    container_name: soc-assistant
+    profiles: ["local-llm"]
     depends_on:
       ollama:
         condition: service_healthy
@@ -34,10 +41,11 @@ services:
       SOC_LLM_PROVIDER: ollama
       SOC_OLLAMA_MODEL: mistral
       OLLAMA_BASE_URL: http://ollama:11434
+      # Threat-intelligence APIs remain opt-in even with a local model.
+      SOC_ENABLE_THREAT_INTEL: "false"
     volumes:
-      - ./data:/app/data
-    # Override the image default (--no-llm) to route through the Ollama model.
-    command: ["python", "src/pipeline.py"]
+      - ./data:/app/data:ro
+    command: ["python", "-m", "src.pipeline", "--provider", "ollama"]
 
 volumes:
   ollama-models:

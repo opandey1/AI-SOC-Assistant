@@ -8,8 +8,12 @@ on:
 
 jobs:
   lint-and-test:
-    name: Lint and test
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - name: Check out repository
@@ -18,20 +22,40 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest flake8 black
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==8.3.4 flake8==7.1.1 black==24.10.0
+
+      - name: Check dependency consistency
+        run: python -m pip check
 
       - name: Check formatting (black)
-        run: black --check src tests
+        run: python -m black --check src tests
 
       - name: Lint (flake8)
-        run: flake8 src tests
+        run: python -m flake8 src tests
 
       - name: Run tests (pytest)
-        run: pytest
+        run: python -m pytest
+
+  container-build:
+    name: Build non-root container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build image
+        run: docker build --tag ai-soc-assistant:ci .
+
+      - name: Confirm non-root runtime user
+        run: test "$(docker image inspect --format '{{.Config.User}}' ai-soc-assistant:ci)" = "app"

@@ -9,18 +9,21 @@ WORKDIR /app
 
 # Install dependencies first so the layer is cached across source changes.
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip && pip install -r requirements.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt \
+    && addgroup --system app \
+    && adduser --system --ingroup app --home /home/app app
 
-COPY src ./src
-COPY data/README.md ./data/README.md
+COPY --chown=app:app src ./src
+COPY --chown=app:app data/README.md ./data/README.md
 
 # The NSL-KDD text files are large and gitignored, so they are NOT baked into
 # the image. Mount them at runtime, e.g.:
-#   docker run --rm -v "$(pwd)/data:/app/data" ai-soc-assistant
+#   docker run --rm -v "$(pwd)/data:/app/data:ro" ai-soc-assistant
 #
-# The default command uses the offline template path, so the container produces
-# a ticket with only the dataset mounted (no LLM required). Override it to use a
-# provider, e.g.:
-#   docker run --rm -v "$(pwd)/data:/app/data" ai-soc-assistant \
-#       python src/pipeline.py --provider ollama
-CMD ["python", "src/pipeline.py", "--no-llm"]
+# The image runs without root privileges. Mount the dataset read-only whenever
+# possible; the pipeline does not modify the raw NSL-KDD files.
+USER app
+
+# Deterministic template mode is the safe default: no LLM and no network lookup.
+CMD ["python", "-m", "src.pipeline", "--no-llm"]
