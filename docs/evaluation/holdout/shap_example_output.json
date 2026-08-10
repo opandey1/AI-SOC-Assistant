@@ -1,0 +1,66 @@
+{
+  "predicted_class": "dos",
+  "rf_confidence": 1.0,
+  "top_shap_drivers": [
+    {
+      "feature": "flag_S0",
+      "true_value": 1.0,
+      "shap_value": 0.10789433802313206,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "dst_host_srv_serror_rate",
+      "true_value": 1.0,
+      "shap_value": 0.08922148914645214,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "dst_host_serror_rate",
+      "true_value": 1.0,
+      "shap_value": 0.08724740895577474,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "serror_rate",
+      "true_value": 1.0,
+      "shap_value": 0.06988904802265482,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "srv_serror_rate",
+      "true_value": 1.0,
+      "shap_value": 0.06358346455233031,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "flag_SF",
+      "true_value": 0.0,
+      "shap_value": 0.05541430451985701,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "src_bytes",
+      "true_value": 0.0,
+      "shap_value": 0.05160429298434564,
+      "direction": "supports the predicted class"
+    },
+    {
+      "feature": "logged_in",
+      "true_value": 0.0,
+      "shap_value": 0.04220010222642164,
+      "direction": "supports the predicted class"
+    }
+  ],
+  "base_value": 0.20004369454653428,
+  "rf_predicted_class": "dos",
+  "rf_anomaly_confidence": 1.0,
+  "isolation_forest_score": -0.11115544584270881,
+  "isolation_risk": 0.8259916251607593,
+  "isolation_threshold": 0.7,
+  "rf_anomaly": true,
+  "isolation_anomaly": true,
+  "fused_anomaly": true,
+  "fused_confidence": 0.9303966500643037,
+  "alert_reason": "both",
+  "source_ip": "192.168.1.47"
+}

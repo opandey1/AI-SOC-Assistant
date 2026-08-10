@@ -1,12 +1,11 @@
 """Evaluation and artifact generation for the AI-SOC-Assistant.
 
-Running this module regenerates every reproducible artifact the README relies on:
+Running this module regenerates every reproducible evaluation artifact:
 
-* ``docs/confusion_matrix.png`` - 5-class confusion matrix heatmap
-* ``docs/metrics.md`` / ``docs/metrics.json`` - per-class precision/recall/F1
-* ``docs/shap_drivers.png`` - SHAP feature-contribution plot for a flagged
-  connection
-* ``docs/shap_example_output.json`` - the matching SHAP evidence bundle
+* ``docs/evaluation/<protocol>/confusion_matrix.png`` - confusion matrix heatmap
+* ``docs/evaluation/<protocol>/metrics.*`` - per-class precision/recall/F1
+* ``docs/evaluation/<protocol>/shap_drivers.png`` - SHAP contribution plot
+* ``docs/evaluation/<protocol>/shap_example_output.json`` - SHAP evidence bundle
 
 By default the model is scored on a stratified hold-out split of ``KDDTrain+``
 so the reported numbers describe in-distribution classification quality. Pass
@@ -18,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,9 @@ import numpy as np
 
 from src.ingest import CLASS_NAMES, NslKddDataset, load_nsl_kdd
 
-DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "docs"
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "evaluation"
+HOLDOUT_PROTOCOL_KEY = "holdout"
+CROSS_DISTRIBUTION_PROTOCOL_KEY = "cross_distribution"
 
 
 @dataclass(frozen=True)
@@ -43,23 +45,81 @@ class EvaluationReport:
     support: dict[str, int]
 
 
+def _validate_val_size(val_size: float) -> float:
+    value = float(val_size)
+    if not math.isfinite(value) or not 0.0 < value < 1.0:
+        raise ValueError("val_size must be a finite value strictly between 0 and 1.")
+    return value
+
+
+def _holdout_fraction(value: str) -> float:
+    try:
+        return _validate_val_size(float(value))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _percentage_label(fraction: float) -> str:
+    return f"{fraction * 100:.2f}".rstrip("0").rstrip(".")
+
+
+def _can_stratify_holdout(dataset: NslKddDataset, val_size: float) -> bool:
+    """Return whether every class can appear in both sides of the split."""
+
+    from src.ingest import TARGET_COLUMN
+
+    val_size = _validate_val_size(val_size)
+    sample_count = len(dataset.train)
+    if sample_count < 2:
+        return False
+    class_counts = dataset.train[TARGET_COLUMN].value_counts()
+    class_count = len(class_counts)
+    validation_count = math.ceil(sample_count * val_size)
+    training_count = sample_count - validation_count
+    return bool(
+        class_count
+        and class_counts.min() >= 2
+        and validation_count >= class_count
+        and training_count >= class_count
+    )
+
+
+def _holdout_protocol(val_size: float, *, stratified: bool) -> str:
+    train_percent = _percentage_label(1.0 - val_size)
+    validation_percent = _percentage_label(val_size)
+    strategy = "stratified " if stratified else ""
+    return f"{strategy}{train_percent}/{validation_percent} hold-out split of KDDTrain+"
+
+
+def evaluation_output_dir(base_output_dir: str | Path, *, use_test_set: bool) -> Path:
+    """Return a protocol-specific artifact directory that prevents overwrites."""
+
+    protocol_key = CROSS_DISTRIBUTION_PROTOCOL_KEY if use_test_set else HOLDOUT_PROTOCOL_KEY
+    base = Path(base_output_dir)
+    return base if base.name == protocol_key else base / protocol_key
+
+
 def _build_holdout_dataset(
     dataset: NslKddDataset,
     *,
     random_state: int,
     val_size: float,
 ) -> NslKddDataset:
-    """Split ``KDDTrain+`` into stratified train/validation halves."""
+    """Split ``KDDTrain+``, stratifying whenever class counts permit it."""
 
     from sklearn.model_selection import train_test_split
 
     from src.ingest import TARGET_COLUMN
 
+    val_size = _validate_val_size(val_size)
+    if len(dataset.train) < 2:
+        raise ValueError("Hold-out evaluation requires at least two training rows.")
+    stratify = dataset.train[TARGET_COLUMN] if _can_stratify_holdout(dataset, val_size) else None
     train_part, val_part = train_test_split(
         dataset.train,
         test_size=val_size,
         random_state=random_state,
-        stratify=dataset.train[TARGET_COLUMN],
+        stratify=stratify,
     )
     return NslKddDataset(
         train=train_part.reset_index(drop=True),
@@ -112,6 +172,15 @@ def evaluate_predictions(
     )
 
 
+def _confusion_matrix_title(report: EvaluationReport) -> str:
+    """Build a title whose class count and protocol match the actual report."""
+
+    return (
+        f"NSL-KDD {len(report.class_names)}-class confusion matrix\n"
+        f"{report.protocol} (accuracy {report.accuracy:.2%})"
+    )
+
+
 def save_confusion_matrix(report: EvaluationReport, output_path: Path) -> None:
     """Render the confusion matrix as an annotated heatmap."""
 
@@ -134,7 +203,7 @@ def save_confusion_matrix(report: EvaluationReport, output_path: Path) -> None:
     )
     ax.set_xlabel("Predicted attack family")
     ax.set_ylabel("True attack family")
-    ax.set_title(f"NSL-KDD 5-class confusion matrix\n(accuracy {report.accuracy:.2%})")
+    ax.set_title(_confusion_matrix_title(report))
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
@@ -200,6 +269,7 @@ def save_shap_artifacts(data: Any, models: Any, output_dir: Path) -> dict[str, A
     import matplotlib.pyplot as plt
 
     from src.explain import build_explainer, explain_connection
+    from src.ingest import INVERSE_LABEL_MAP, LABEL_MAP
 
     index = _select_flagged_index(models, data.y_test.to_numpy())
     raw_row = data.x_test.iloc[index]
@@ -216,9 +286,32 @@ def save_shap_artifacts(data: Any, models: Any, output_dir: Path) -> dict[str, A
         prediction=prediction,
         feature_names=data.feature_names,
     )
-    bundle["isolation_forest_score"] = float(
-        models.isolation_forest.decision_function(row_scaled.reshape(1, -1))[0]
+    rf_anomaly = prediction != LABEL_MAP["normal"]
+    isolation_anomaly = bool(models.iso_anomaly[index])
+    if rf_anomaly and isolation_anomaly:
+        alert_reason = "both"
+    elif rf_anomaly:
+        alert_reason = "random_forest"
+    elif isolation_anomaly:
+        alert_reason = "isolation_forest"
+    else:
+        alert_reason = "none"
+
+    bundle["rf_predicted_class"] = INVERSE_LABEL_MAP.get(
+        prediction,
+        f"class_{prediction}",
     )
+    if alert_reason == "isolation_forest":
+        bundle["predicted_class"] = "anomaly"
+    bundle["rf_anomaly_confidence"] = float(models.rf_anomaly_confidence[index])
+    bundle["isolation_forest_score"] = float(models.iso_scores[index])
+    bundle["isolation_risk"] = float(models.iso_normalized[index])
+    bundle["isolation_threshold"] = float(models.isolation_threshold)
+    bundle["rf_anomaly"] = rf_anomaly
+    bundle["isolation_anomaly"] = isolation_anomaly
+    bundle["fused_anomaly"] = bool(models.fused_anomaly[index])
+    bundle["fused_confidence"] = float(models.fused_confidence[index])
+    bundle["alert_reason"] = alert_reason
     bundle["source_ip"] = "192.168.1.47"
 
     drivers = bundle["top_shap_drivers"]
@@ -231,7 +324,7 @@ def save_shap_artifacts(data: Any, models: Any, output_dir: Path) -> dict[str, A
     ax.axvline(0, color="#444444", linewidth=0.8)
     ax.set_xlabel("SHAP value (impact on predicted-class score)")
     ax.set_title(
-        f"Top SHAP drivers for predicted `{bundle['predicted_class']}` "
+        f"Top SHAP drivers for RF-predicted {bundle['rf_predicted_class']} "
         f"(confidence {bundle['rf_confidence']:.1%})"
     )
     fig.tight_layout()
@@ -251,15 +344,22 @@ def run_evaluation(args: argparse.Namespace) -> EvaluationReport:
     from src.train import train_models
 
     project_root = Path(__file__).resolve().parents[1]
-    dataset = load_nsl_kdd(args.train, args.test, search_roots=[project_root, Path.cwd()])
+    dataset = load_nsl_kdd(
+        args.train,
+        args.test,
+        search_roots=[project_root, Path.cwd()],
+        require_test=args.use_test_set,
+    )
 
     if args.use_test_set:
         protocol = "train on KDDTrain+, test on KDDTest+ (cross-distribution)"
         eval_dataset = dataset
     else:
-        protocol = "stratified 80/20 hold-out split of KDDTrain+"
+        val_size = _validate_val_size(args.val_size)
+        stratified = _can_stratify_holdout(dataset, val_size)
+        protocol = _holdout_protocol(val_size, stratified=stratified)
         eval_dataset = _build_holdout_dataset(
-            dataset, random_state=args.random_state, val_size=args.val_size
+            dataset, random_state=args.random_state, val_size=val_size
         )
 
     data = preprocess_dataset(eval_dataset, use_smote=not args.no_smote)
@@ -267,7 +367,7 @@ def run_evaluation(args: argparse.Namespace) -> EvaluationReport:
 
     report = evaluate_predictions(data.y_test.to_numpy(), models.rf_predictions, protocol=protocol)
 
-    output_dir = Path(args.output_dir)
+    output_dir = evaluation_output_dir(args.output_dir, use_test_set=args.use_test_set)
     output_dir.mkdir(parents=True, exist_ok=True)
     save_confusion_matrix(report, output_dir / "confusion_matrix.png")
     save_metrics(report, output_dir)
@@ -285,16 +385,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
-        help="Directory for the generated artifacts (default: docs/).",
+        help=(
+            "Base directory for generated artifacts; a protocol subdirectory is "
+            "added automatically (default: docs/evaluation/)."
+        ),
     )
     parser.add_argument(
         "--use-test-set",
         action="store_true",
         help="Score against KDDTest+ instead of a hold-out split of KDDTrain+.",
     )
-    parser.add_argument("--val-size", type=float, default=0.2, help="Hold-out fraction.")
+    parser.add_argument(
+        "--val-size",
+        type=_holdout_fraction,
+        default=0.2,
+        help="Hold-out fraction strictly between 0 and 1.",
+    )
     parser.add_argument("--random-state", type=int, default=42, help="Split seed.")
-    parser.add_argument("--no-smote", action="store_true", help="Disable SMOTE balancing.")
+    parser.add_argument(
+        "--no-smote",
+        action="store_true",
+        help="Disable class balancing (legacy flag name).",
+    )
     parser.add_argument("--skip-shap", action="store_true", help="Skip SHAP plot generation.")
     return parser
 
@@ -303,7 +415,8 @@ def main() -> None:
     args = build_parser().parse_args()
     report = run_evaluation(args)
     print(report_to_markdown(report))
-    print(f"Artifacts written to {Path(args.output_dir).resolve()}")
+    output_dir = evaluation_output_dir(args.output_dir, use_test_set=args.use_test_set)
+    print(f"Artifacts written to {output_dir.resolve()}")
 
 
 if __name__ == "__main__":
