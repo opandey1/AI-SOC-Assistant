@@ -1,81 +1,164 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="680" height="724" viewBox="0 0 680 724" role="img">
-<title>AI-Powered SOC Assistant — System Architecture</title>
-<desc>Six-phase pipeline: data ingestion, feature engineering, dual ML detection, SHAP explainability, LangGraph ReAct agent, mitigation ticket output.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="1360" viewBox="0 0 980 1360" role="img" aria-labelledby="ttl dsc">
+<title id="ttl">AI-Powered SOC Assistant — system architecture</title>
+<desc id="dsc">Six-stage pipeline: NSL-KDD ingestion, feature engineering, parallel Random Forest and Isolation Forest detection with score fusion, a normal-traffic early exit and the MITRE ATT&amp;CK family mapping, SHAP explainability, a LangGraph ReAct agent running locally with optional external LLM and threat-intel calls across a host boundary, and a six-section incident ticket. Headline metrics report the KDDTest+ novel-variant split.</desc>
 <defs>
-<marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-<path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-</marker>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M1 1L9 5L1 9Z" fill="#9ba0b5"></path></marker>
+<marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M1 1L9 5L1 9Z" fill="#5d5294"></path></marker>
+<linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b5abfc" stop-opacity="0"></stop><stop offset="0.055" stop-color="#b5abfc" stop-opacity="0.5"></stop><stop offset="0.945" stop-color="#b5abfc" stop-opacity="0.5"></stop><stop offset="1" stop-color="#b5abfc" stop-opacity="0"></stop></linearGradient>
 </defs>
-<rect width="680" height="724" fill="#FFFFFF"/>
-<text font-family="Arial,sans-serif" font-size="15" font-weight="bold" fill="#1F2937" x="340" y="22" text-anchor="middle">AI-Powered SOC Assistant — System Architecture</text>
-<text font-family="Arial,sans-serif" font-size="11" fill="#5F5E5A" x="340" y="40" text-anchor="middle">NSL-KDD · Random Forest + Isolation Forest · SHAP · LangGraph · Ollama / Claude / GPT-4</text>
-<rect x="30" y="52" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
-<path fill="#0F6E56" d="M40,52 L640,52 Q650,52 650,62 L650,78 L30,78 L30,62 Q30,52 40,52 Z"/>
-<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="69" text-anchor="middle" dominant-baseline="central">Phase 1 — Data Ingestion</text>
-<rect x="40" y="84" width="186" height="30" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#085041" x="133" y="99" text-anchor="middle" dominant-baseline="central">NSL-KDD / CICIDS</text>
-<rect x="246" y="84" width="186" height="30" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#085041" x="339" y="99" text-anchor="middle" dominant-baseline="central">Live PCAP / Zeek</text>
-<rect x="452" y="84" width="186" height="30" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#085041" x="545" y="99" text-anchor="middle" dominant-baseline="central">Suricata / syslog</text>
-<line x1="220" y1="132" x2="220" y2="148" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
-<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="143" text-anchor="start">Raw network flow features (41 cols)</text>
-<rect x="30" y="152" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
-<path fill="#185FA5" d="M40,152 L640,152 Q650,152 650,162 L650,178 L30,178 L30,162 Q30,152 40,152 Z"/>
-<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="169" text-anchor="middle" dominant-baseline="central">Phase 2 — Feature Engineering &amp; Preprocessing</text>
-<rect x="40" y="184" width="186" height="30" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#0C447C" x="133" y="199" text-anchor="middle" dominant-baseline="central">OHE encoding</text>
-<rect x="246" y="184" width="186" height="30" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#0C447C" x="339" y="199" text-anchor="middle" dominant-baseline="central">StandardScaler</text>
-<rect x="452" y="184" width="186" height="30" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#0C447C" x="545" y="199" text-anchor="middle" dominant-baseline="central">SMOTE balancing</text>
-<line x1="220" y1="232" x2="220" y2="250" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
-<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="243" text-anchor="start">Scaled &amp; balanced feature vectors</text>
-<rect x="30" y="254" width="620" height="108" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
-<path fill="#534AB7" d="M40,254 L640,254 Q650,254 650,264 L650,280 L30,280 L30,264 Q30,254 40,254 Z"/>
-<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="271" text-anchor="middle" dominant-baseline="central">Phase 3 — Dual ML Detection Layer</text>
-<rect x="40" y="286" width="290" height="30" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#3C3489" x="185" y="301" text-anchor="middle" dominant-baseline="central">Random Forest — 5-class supervised</text>
-<rect x="340" y="286" width="290" height="30" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#3C3489" x="485" y="301" text-anchor="middle" dominant-baseline="central">Isolation Forest — zero-day anomaly</text>
-<rect x="110" y="322" width="460" height="30" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#3C3489" x="340" y="337" text-anchor="middle" dominant-baseline="central">Confidence score fusion — RF 60% + ISO 40%</text>
-<line x1="220" y1="368" x2="220" y2="380" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
-<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="376" text-anchor="start">Attack class + anomaly score + confidence</text>
-<rect x="30" y="384" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
-<path fill="#854F0B" d="M40,384 L640,384 Q650,384 650,394 L650,410 L30,410 L30,394 Q30,384 40,384 Z"/>
-<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="401" text-anchor="middle" dominant-baseline="central">Phase 4 — SHAP Explainability</text>
-<rect x="40" y="416" width="186" height="30" rx="6" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#854F0B" x="133" y="431" text-anchor="middle" dominant-baseline="central">SHAP TreeExplainer</text>
-<rect x="246" y="416" width="186" height="30" rx="6" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#854F0B" x="339" y="431" text-anchor="middle" dominant-baseline="central">Top-8 feature drivers</text>
-<rect x="452" y="416" width="186" height="30" rx="6" fill="#FAEEDA" stroke="#EF9F27" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#854F0B" x="545" y="431" text-anchor="middle" dominant-baseline="central">JSON context bundle</text>
-<line x1="220" y1="464" x2="220" y2="484" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
-<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="476" text-anchor="start">Structured SHAP context bundle (JSON)</text>
-<rect x="30" y="488" width="620" height="108" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
-<path fill="#993C1D" d="M40,488 L640,488 Q650,488 650,498 L650,514 L30,514 L30,498 Q30,488 40,488 Z"/>
-<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="505" text-anchor="middle" dominant-baseline="central">Phase 5 — LangGraph ReAct Agent</text>
-<rect x="40" y="520" width="186" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="133" y="534" text-anchor="middle" dominant-baseline="central">Ollama — local / air-gap</text>
-<rect x="246" y="520" width="186" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="339" y="534" text-anchor="middle" dominant-baseline="central">Anthropic Claude API</text>
-<rect x="452" y="520" width="186" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="545" y="534" text-anchor="middle" dominant-baseline="central">OpenAI GPT-4 API</text>
-<rect x="40" y="554" width="290" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="185" y="568" text-anchor="middle" dominant-baseline="central">AbuseIPDB reputation tool</text>
-<rect x="340" y="554" width="290" height="28" rx="6" fill="#FAECE7" stroke="#F0997B" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#712B13" x="485" y="568" text-anchor="middle" dominant-baseline="central">NIST NVD CVE lookup tool</text>
-<line x1="220" y1="602" x2="220" y2="614" stroke="#888780" stroke-width="1.5" marker-end="url(#arr)"/>
-<text font-family="Arial,sans-serif" font-size="10" fill="#888780" x="234" y="610" text-anchor="start">Formatted incident ticket</text>
-<rect x="30" y="618" width="620" height="74" rx="10" fill="#F5F5F2" stroke="#D3D1C7" stroke-width="0.5"/>
-<path fill="#3B6D11" d="M40,618 L640,618 Q650,618 650,628 L650,644 L30,644 L30,628 Q30,618 40,618 Z"/>
-<text font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#FFFFFF" x="340" y="635" text-anchor="middle" dominant-baseline="central">Phase 6 — Mitigation Ticket Output</text>
-<rect x="40" y="650" width="186" height="30" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#27500A" x="133" y="665" text-anchor="middle" dominant-baseline="central">Incident summary</text>
-<rect x="246" y="650" width="186" height="30" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#27500A" x="339" y="665" text-anchor="middle" dominant-baseline="central">SHAP evidence</text>
-<rect x="452" y="650" width="186" height="30" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
-<text font-family="Arial,sans-serif" font-size="11" fill="#27500A" x="545" y="665" text-anchor="middle" dominant-baseline="central">Jira / ServiceNow</text>
-<text font-family="Arial,sans-serif" font-size="10" fill="#B4B2A9" x="340" y="706" text-anchor="middle">github.com/opandey1/AI-SOC-Assistant · NSL-KDD · MIT License</text>
+<rect width="980" height="1360" fill="#161826"></rect>
+<text x="40" y="54" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="29" font-weight="500" fill="#e9e9ed">AI-Powered SOC Assistant</text>
+<text x="40" y="78" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="13.5" fill="#9ba0b5">Explainable intrusion triage — one NSL-KDD connection record in, an analyst-ready incident ticket out.</text>
+<rect x="40" y="97" width="900" height="1" fill="url(#fade)"></rect>
+<text x="40" y="126" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10" fill="#b5abfc" letter-spacing="0.09em">KDDTest+ · NOVEL ATTACK VARIANTS</text>
+<text x="40" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="31" font-weight="500" fill="#d2cefd">74.9%</text>
+<text x="40" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">accuracy</text>
+<text x="168" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="31" font-weight="500" fill="#d2cefd">0.53</text>
+<text x="168" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">macro F1</text>
+<line x1="300" y1="112" x2="300" y2="180" stroke="#2e3350" stroke-width="1"></line>
+<text x="332" y="126" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10" fill="#8a8fa3" letter-spacing="0.09em">KDDTrain+ 80/20 HOLD-OUT · IN-DISTRIBUTION</text>
+<text x="332" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="24" font-weight="500" fill="#9ba0b5">99.90%</text>
+<text x="332" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">accuracy</text>
+<text x="460" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="24" font-weight="500" fill="#9ba0b5">0.966</text>
+<text x="460" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">macro F1</text>
+<text x="40" y="198" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">The hold-out split shares attack variants across both folds; KDDTest+ deliberately withholds them. The lower pair is the number that generalises.</text>
+<rect x="40" y="226" width="600" height="106" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
+<text x="56" y="252" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="14.5" font-weight="500" fill="#b5abfc">01</text>
+<text x="86" y="252" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="500" fill="#e9e9ed">Data ingestion</text>
+<text x="624" y="252" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10.5" fill="#8a8fa3" text-anchor="end">src/ingest.py</text>
+<rect x="56" y="268" width="181" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="287" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">NSL-KDD flow records</text>
+<text x="68" y="303" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">KDDTrain+ · KDDTest+</text>
+<rect x="249" y="268" width="181" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="261" y="287" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Attack-family mapping</text>
+<text x="261" y="303" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">40 labels → 5 families</text>
+<rect x="442" y="268" width="182" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="454" y="287" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Feature split</text>
+<text x="454" y="303" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">protocol · service · flag</text>
+<line x1="146" y1="342" x2="146" y2="364" stroke="#9ba0b5" stroke-width="2" marker-end="url(#arr)"></line>
+<text x="162" y="359" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">Labelled connection records · 41 raw features</text>
+<rect x="40" y="376" width="600" height="106" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
+<text x="56" y="402" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="14.5" font-weight="500" fill="#b5abfc">02</text>
+<text x="86" y="402" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="500" fill="#e9e9ed">Feature engineering</text>
+<text x="624" y="402" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10.5" fill="#8a8fa3" text-anchor="end">src/preprocess.py</text>
+<rect x="56" y="418" width="181" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="437" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">OneHotEncoder</text>
+<text x="68" y="453" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">handle_unknown=&#39;ignore&#39;</text>
+<rect x="249" y="418" width="181" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="261" y="437" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">StandardScaler</text>
+<text x="261" y="453" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">fit on the training fold</text>
+<rect x="442" y="418" width="182" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="454" y="437" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">SMOTE</text>
+<text x="454" y="453" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">k_neighbors ≤ 3, train only</text>
+<line x1="146" y1="492" x2="146" y2="514" stroke="#9ba0b5" stroke-width="2" marker-end="url(#arr)"></line>
+<text x="162" y="509" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">Scaled, class-balanced feature vectors</text>
+<rect x="40" y="526" width="600" height="274" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
+<text x="56" y="552" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="14.5" font-weight="500" fill="#b5abfc">03</text>
+<text x="86" y="552" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="500" fill="#e9e9ed">Dual detection</text>
+<text x="624" y="552" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10.5" fill="#8a8fa3" text-anchor="end">src/train.py</text>
+<rect x="56" y="568" width="278" height="64" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="588" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Random Forest — supervised</text>
+<text x="68" y="605" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">200 trees · depth 25 · balanced</text>
+<text x="68" y="621" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">Predicts the attack family</text>
+<rect x="346" y="568" width="278" height="64" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="358" y="588" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Isolation Forest — unsupervised</text>
+<text x="358" y="605" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">200 trees · contamination 0.05</text>
+<text x="358" y="621" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">Fit on normal traffic only</text>
+<rect x="56" y="646" width="568" height="44" rx="6" fill="#2b2741" stroke="#5d5294" stroke-width="1"></rect>
+<text x="70" y="665" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#d2cefd">Score fusion</text>
+<text x="70" y="681" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#9ba0b5">0.6 × RF confidence + 0.4 × normalised ISO score  ·  flag if class ≠ normal OR iso_norm &gt; 0.7</text>
+<path d="M624 668 H668" stroke="#5d5294" stroke-width="1.25" stroke-dasharray="7 5" marker-end="url(#arrA)" fill="none"></path>
+<rect x="680" y="650" width="220" height="36" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1"></rect>
+<text x="692" y="673" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#9ba0b5">Classified normal → no ticket</text>
+<rect x="56" y="708" width="568" height="1" fill="#2e3350"></rect>
+<text x="56" y="726" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">The Random Forest verdict, in MITRE ATT&amp;CK terms</text>
+<rect x="56" y="734" width="107" height="48" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="66" y="752" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="12" font-weight="500" fill="#d2cefd">normal</text>
+<text x="66" y="766" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#edeff7">Benign</text>
+<text x="66" y="778" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10" fill="#9ba0b5">baseline</text>
+<rect x="171" y="734" width="107" height="48" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="181" y="752" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="12" font-weight="500" fill="#d2cefd">dos</text>
+<text x="181" y="766" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#edeff7">Impact</text>
+<text x="181" y="778" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10" fill="#9ba0b5">TA0040</text>
+<rect x="286" y="734" width="107" height="48" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="296" y="752" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="12" font-weight="500" fill="#d2cefd">probe</text>
+<text x="296" y="766" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#edeff7">Discovery</text>
+<text x="296" y="778" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10" fill="#9ba0b5">TA0007</text>
+<rect x="401" y="734" width="107" height="48" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="411" y="752" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="12" font-weight="500" fill="#d2cefd">r2l</text>
+<text x="411" y="766" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#edeff7">Initial Access</text>
+<text x="411" y="778" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10" fill="#9ba0b5">TA0001</text>
+<rect x="516" y="734" width="108" height="48" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="526" y="752" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="12" font-weight="500" fill="#d2cefd">u2r</text>
+<text x="526" y="766" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#edeff7">Priv. Escalation</text>
+<text x="526" y="778" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10" fill="#9ba0b5">TA0004</text>
+<line x1="146" y1="810" x2="146" y2="832" stroke="#9ba0b5" stroke-width="2" marker-end="url(#arr)"></line>
+<text x="162" y="827" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">Attack family · anomaly score · fused confidence</text>
+<rect x="40" y="844" width="600" height="106" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
+<text x="56" y="870" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="14.5" font-weight="500" fill="#b5abfc">04</text>
+<text x="86" y="870" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="500" fill="#e9e9ed">SHAP explainability</text>
+<text x="624" y="870" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10.5" fill="#8a8fa3" text-anchor="end">src/explain.py</text>
+<rect x="56" y="886" width="181" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="905" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">TreeExplainer</text>
+<text x="68" y="921" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">per-class SHAP values</text>
+<rect x="249" y="886" width="181" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="261" y="905" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Top-8 drivers</text>
+<text x="261" y="921" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">ranked by |SHAP|</text>
+<rect x="442" y="886" width="182" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="454" y="905" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Real network values</text>
+<text x="454" y="921" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">unscaled, not z-scores</text>
+<line x1="146" y1="960" x2="146" y2="982" stroke="#9ba0b5" stroke-width="2" marker-end="url(#arr)"></line>
+<text x="162" y="977" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">JSON evidence bundle</text>
+<rect x="40" y="994" width="600" height="106" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
+<text x="56" y="1020" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="14.5" font-weight="500" fill="#b5abfc">05</text>
+<text x="86" y="1020" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="500" fill="#e9e9ed">LangGraph ReAct agent</text>
+<text x="624" y="1020" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10.5" fill="#8a8fa3" text-anchor="end">src/agent.py</text>
+<rect x="56" y="1036" width="278" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="1055" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Ollama — mistral</text>
+<text x="68" y="1071" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">default provider, runs on the host</text>
+<rect x="346" y="1036" width="278" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="358" y="1055" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Template mode</text>
+<text x="358" y="1071" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">--no-llm, deterministic ticket</text>
+<text x="680" y="978" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10" fill="#8a8fa3" letter-spacing="0.08em">OPTIONAL · LEAVES THE HOST</text>
+<line x1="664" y1="1013" x2="664" y2="1181" stroke="#5d5294" stroke-width="1" stroke-dasharray="7 5"></line>
+<path d="M624 1047 H664" stroke="#5d5294" stroke-width="1" stroke-dasharray="7 5" fill="none"></path>
+<rect x="680" y="990" width="260" height="46" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1" stroke-dasharray="5 4"></rect>
+<text x="692" y="1009" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#edeff7">Anthropic Claude API</text>
+<text x="692" y="1025" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3">swap-in ticket generation</text>
+<path d="M664 1013 H674" stroke="#5d5294" stroke-width="1" stroke-dasharray="7 5" fill="none" marker-end="url(#arrA)"></path>
+<rect x="680" y="1046" width="260" height="46" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1" stroke-dasharray="5 4"></rect>
+<text x="692" y="1065" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#edeff7">OpenAI GPT-4o API</text>
+<text x="692" y="1081" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3">swap-in ticket generation</text>
+<path d="M664 1069 H674" stroke="#5d5294" stroke-width="1" stroke-dasharray="7 5" fill="none" marker-end="url(#arrA)"></path>
+<rect x="680" y="1102" width="260" height="46" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1" stroke-dasharray="5 4"></rect>
+<text x="692" y="1121" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#edeff7">AbuseIPDB</text>
+<text x="692" y="1137" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3">agent tool — IP reputation</text>
+<path d="M664 1125 H674" stroke="#5d5294" stroke-width="1" stroke-dasharray="7 5" fill="none" marker-end="url(#arrA)"></path>
+<rect x="680" y="1158" width="260" height="46" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1" stroke-dasharray="5 4"></rect>
+<text x="692" y="1177" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#edeff7">NIST NVD</text>
+<text x="692" y="1193" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3">agent tool — CVE lookup</text>
+<path d="M664 1181 H674" stroke="#5d5294" stroke-width="1" stroke-dasharray="7 5" fill="none" marker-end="url(#arrA)"></path>
+<line x1="646" y1="964" x2="646" y2="1220" stroke="#5d5294" stroke-width="1"></line>
+<text transform="translate(640 1092) rotate(-90)" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10" fill="#8a8fa3" text-anchor="middle" letter-spacing="0.1em">HOST BOUNDARY</text>
+<line x1="146" y1="1110" x2="146" y2="1132" stroke="#9ba0b5" stroke-width="2" marker-end="url(#arr)"></line>
+<text x="162" y="1127" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">Ticket-only output, guard-railed against raw SHAP floats</text>
+<rect x="40" y="1144" width="600" height="138" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
+<text x="56" y="1170" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="14.5" font-weight="500" fill="#b5abfc">06</text>
+<text x="86" y="1170" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="500" fill="#e9e9ed">Incident ticket</text>
+<text x="624" y="1170" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="10.5" fill="#8a8fa3" text-anchor="end">docs/sample_ticket.md</text>
+<rect x="56" y="1186" width="181" height="34" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="1207" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#edeff7">1  Incident summary</text>
+<rect x="249" y="1186" width="181" height="34" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="261" y="1207" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#edeff7">2  Attack classification</text>
+<rect x="442" y="1186" width="182" height="34" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="454" y="1207" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#edeff7">3  Why flagged — evidence</text>
+<rect x="56" y="1230" width="181" height="34" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="68" y="1251" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#edeff7">4  Containment steps</text>
+<rect x="249" y="1230" width="181" height="34" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="261" y="1251" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#edeff7">5  Splunk SPL queries</text>
+<rect x="442" y="1230" width="182" height="34" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
+<text x="454" y="1251" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#edeff7">6  Escalation P1 / P2 / P3</text>
+<rect x="40" y="1302" width="900" height="1" fill="url(#fade)"></rect>
+<text x="40" y="1326" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#9ba0b5">github.com/opandey1/AI-SOC-Assistant</text>
+<text x="940" y="1326" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="11" fill="#8a8fa3" text-anchor="end">NSL-KDD · MIT License · python -m src.pipeline</text>
 </svg>
