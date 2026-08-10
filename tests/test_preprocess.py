@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from src.ingest import DatasetPaths, NslKddDataset, add_attack_family
@@ -73,3 +74,120 @@ def test_targets_are_integer_class_indices():
     # normal=0, dos=1, probe=2, r2l=3 per LABEL_MAP.
     assert data.y_train.tolist() == [0, 1, 2, 3]
     assert data.y_train.dtype.kind == "i"
+
+
+def test_random_oversampling_preserves_exact_rows_and_feature_domains():
+    labels = ["normal"] * 6 + ["neptune"] * 3
+    train = add_attack_family(
+        pd.DataFrame(
+            {
+                "protocol_type": ["tcp", "udp", "tcp"] * 3,
+                "service": ["http", "domain_u", "ftp"] * 3,
+                "flag": ["SF", "S0", "REJ"] * 3,
+                "src_bytes": [
+                    10,
+                    1_000_000_000_000,
+                    30,
+                    40,
+                    2_000_000_000_000,
+                    60,
+                    70,
+                    3_000_000_000_000,
+                    90,
+                ],
+                "land": [0, 1, 0] * 3,
+                "logged_in": [1, 0, 1] * 3,
+                "num_failed_logins": [0] * 9,
+                "count": list(range(1, 10)),
+                "label": labels,
+                "difficulty": [20] * 9,
+            }
+        )
+    )
+    test = train.iloc[:2].copy()
+    dataset = NslKddDataset(
+        train=train,
+        test=test,
+        paths=DatasetPaths(train=Path("train.txt"), test=Path("test.txt")),
+    )
+
+    data = preprocess_dataset(dataset, use_smote=True, smote_k_neighbors=2)
+
+    assert data.smote_applied is True
+    assert data.balancing_method == "random_oversampling"
+    assert len(data.x_train_balanced) > len(data.x_train_scaled)
+    balanced_counts = pd.Series(data.y_train_balanced).value_counts()
+    assert balanced_counts.nunique() == 1
+    balanced_unscaled = pd.DataFrame(
+        data.scaler.inverse_transform(data.x_train_balanced),
+        columns=data.feature_names,
+    )
+
+    for balanced_row in data.x_train_balanced:
+        exact_match = np.all(data.x_train_scaled == balanced_row, axis=1)
+        assert exact_match.any()
+
+    for feature in ("protocol_type", "service", "flag"):
+        category_columns = [
+            column for column in data.feature_names if column.startswith(f"{feature}_")
+        ]
+        category_values = balanced_unscaled[category_columns].to_numpy()
+        assert np.allclose(category_values.sum(axis=1), 1.0)
+        assert np.all(np.isclose(category_values, 0.0) | np.isclose(category_values, 1.0))
+    for binary_feature in ("land", "logged_in", "num_failed_logins"):
+        assert set(np.rint(balanced_unscaled[binary_feature]).astype(int)) <= {0, 1}
+    assert np.allclose(balanced_unscaled["count"], np.rint(balanced_unscaled["count"]))
+
+
+def test_smote_is_skipped_gracefully_for_single_class_training_data():
+    train = add_attack_family(
+        pd.DataFrame(
+            {
+                "protocol_type": ["tcp"] * 4,
+                "service": ["http"] * 4,
+                "flag": ["SF"] * 4,
+                "src_bytes": [10, 20, 30, 40],
+                "count": [1, 2, 3, 4],
+                "label": ["normal"] * 4,
+                "difficulty": [20] * 4,
+            }
+        )
+    )
+    dataset = NslKddDataset(
+        train=train,
+        test=train.iloc[:2].copy(),
+        paths=DatasetPaths(train=Path("train.txt"), test=Path("test.txt")),
+    )
+
+    data = preprocess_dataset(dataset, use_smote=True)
+
+    assert data.smote_applied is False
+    assert data.balancing_method == "none"
+    np.testing.assert_array_equal(data.x_train_balanced, data.x_train_scaled)
+    assert data.y_train_balanced.tolist() == [0, 0, 0, 0]
+
+
+def test_random_oversampling_can_balance_a_single_minority_sample():
+    train = add_attack_family(
+        pd.DataFrame(
+            {
+                "protocol_type": ["tcp"] * 4,
+                "service": ["http"] * 4,
+                "flag": ["SF"] * 4,
+                "src_bytes": [10, 20, 30, 40],
+                "count": [1, 2, 3, 4],
+                "label": ["normal", "normal", "normal", "neptune"],
+                "difficulty": [20] * 4,
+            }
+        )
+    )
+    dataset = NslKddDataset(
+        train=train,
+        test=train.iloc[:2].copy(),
+        paths=DatasetPaths(train=Path("train.txt"), test=Path("test.txt")),
+    )
+
+    data = preprocess_dataset(dataset, use_smote=True)
+
+    assert pd.Series(data.y_train_balanced).value_counts().to_dict() == {0: 3, 1: 3}
+    assert data.balancing_method == "random_oversampling"

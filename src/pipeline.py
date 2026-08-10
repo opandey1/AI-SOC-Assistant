@@ -15,6 +15,17 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+def _unit_interval(value: str) -> float:
+    """Parse a finite inclusive 0-1 value for argparse."""
+
+    import math
+
+    parsed = float(value)
+    if not math.isfinite(parsed) or not 0.0 <= parsed <= 1.0:
+        raise argparse.ArgumentTypeError("value must be between 0 and 1")
+    return parsed
+
+
 def select_connection_index(models: Any, row_index: int | None = None) -> int:
     """Select a requested row, or the first fused anomaly in the test set."""
 
@@ -46,15 +57,15 @@ def process_connection(
 
     from src.agent import generate_incident_ticket
     from src.explain import explain_connection
-    from src.ingest import LABEL_MAP
+    from src.ingest import INVERSE_LABEL_MAP
+    from src.train import score_connection
 
     row_df = pd.DataFrame([raw_row], columns=data.feature_names)
     row_scaled = data.scaler.transform(row_df)[0]
 
-    prediction = int(models.random_forest.predict(row_scaled.reshape(1, -1))[0])
-    iso_score = float(models.isolation_forest.decision_function(row_scaled.reshape(1, -1))[0])
+    score = score_connection(models, row_scaled)
 
-    if prediction == LABEL_MAP["normal"] and iso_score > 0:
+    if not score.fused_anomaly:
         return "Connection classified NORMAL - no ticket generated."
 
     shap_bundle = explain_connection(
@@ -62,10 +73,26 @@ def process_connection(
         random_forest=models.random_forest,
         raw_row_df=row_df,
         row_scaled=row_scaled,
-        prediction=prediction,
+        prediction=score.rf_prediction,
         feature_names=data.feature_names,
     )
-    shap_bundle["isolation_forest_score"] = iso_score
+    rf_predicted_class = INVERSE_LABEL_MAP.get(
+        score.rf_prediction,
+        f"class_{score.rf_prediction}",
+    )
+    shap_bundle["rf_predicted_class"] = rf_predicted_class
+    if score.alert_reason == "isolation_forest":
+        shap_bundle["predicted_class"] = "anomaly"
+    shap_bundle["rf_confidence"] = score.rf_confidence
+    shap_bundle["rf_anomaly_confidence"] = score.rf_anomaly_confidence
+    shap_bundle["isolation_forest_score"] = score.isolation_score
+    shap_bundle["isolation_risk"] = score.isolation_risk
+    shap_bundle["isolation_threshold"] = models.isolation_threshold
+    shap_bundle["rf_anomaly"] = score.rf_anomaly
+    shap_bundle["isolation_anomaly"] = score.isolation_anomaly
+    shap_bundle["fused_anomaly"] = score.fused_anomaly
+    shap_bundle["fused_confidence"] = score.fused_confidence
+    shap_bundle["alert_reason"] = score.alert_reason
     shap_bundle["source_ip"] = src_ip or "unknown"
 
     return generate_incident_ticket(
@@ -101,11 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-smote",
         action="store_true",
-        help="Disable SMOTE class balancing for faster local smoke tests.",
+        help="Disable class balancing (legacy flag name).",
     )
     parser.add_argument(
         "--isolation-threshold",
-        type=float,
+        type=_unit_interval,
         default=0.7,
         help="Normalized Isolation Forest threshold used in fused anomaly scoring.",
     )
@@ -124,7 +151,8 @@ def run_pipeline(args: argparse.Namespace) -> str:
 
     data = preprocess_dataset(dataset, use_smote=not args.no_smote)
     print(
-        f"Prepared {len(data.feature_names):,} model features. SMOTE applied: {data.smote_applied}."
+        f"Prepared {len(data.feature_names):,} model features. "
+        f"Class balancing: {data.balancing_method}."
     )
 
     models = train_models(data, isolation_threshold=args.isolation_threshold)

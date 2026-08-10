@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import RandomOverSampler
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from src.ingest import CATEGORICAL_FEATURES, DROP_COLUMNS, LABEL_MAP, TARGET_COLUMN, NslKddDataset
@@ -31,7 +31,14 @@ class PreprocessedData:
     feature_names: list[str]
     encoder: OneHotEncoder
     scaler: StandardScaler
-    smote_applied: bool
+    balancing_applied: bool
+    balancing_method: str
+
+    @property
+    def smote_applied(self) -> bool:
+        """Backward-compatible alias for the former balancing status field."""
+
+        return self.balancing_applied
 
 
 def _make_one_hot_encoder() -> OneHotEncoder:
@@ -74,21 +81,21 @@ def _build_targets(train_df: pd.DataFrame, test_df: pd.DataFrame) -> tuple[pd.Se
     return y_train.astype(int), y_test.astype(int)
 
 
-def _apply_smote(
+def _apply_random_oversampling(
     x_train_scaled: np.ndarray,
     y_train: pd.Series,
     random_state: int,
-    default_k_neighbors: int,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Balance classes by duplicating exact rows without synthesizing telemetry."""
+
     class_counts = y_train.value_counts()
-    min_class_count = int(class_counts.min())
-    if min_class_count <= 1:
+    if len(class_counts) < 2:
         return x_train_scaled, y_train.to_numpy(), False
 
-    k_neighbors = min(default_k_neighbors, min_class_count - 1)
-    smote = SMOTE(random_state=random_state, k_neighbors=k_neighbors)
-    x_balanced, y_balanced = smote.fit_resample(x_train_scaled, y_train)
-    return x_balanced, y_balanced, True
+    sampler = RandomOverSampler(random_state=random_state)
+    x_balanced, y_balanced = sampler.fit_resample(x_train_scaled, y_train)
+    balancing_applied = len(x_balanced) > len(x_train_scaled)
+    return np.asarray(x_balanced), np.asarray(y_balanced, dtype=int), balancing_applied
 
 
 def preprocess_dataset(
@@ -98,7 +105,13 @@ def preprocess_dataset(
     random_state: int = 42,
     smote_k_neighbors: int = 3,
 ) -> PreprocessedData:
-    """One-hot encode, scale, and optionally balance the NSL-KDD train/test split."""
+    """One-hot encode, scale, and optionally balance the NSL-KDD train/test split.
+
+    ``use_smote`` and ``smote_k_neighbors`` retain their historical names for API
+    compatibility (the neighbor setting is no longer used). Balancing now uses
+    exact-row random oversampling so categorical, binary, and integer-domain
+    NSL-KDD features are never interpolated.
+    """
 
     raw_train = dataset.train.copy()
     raw_test = dataset.test.copy()
@@ -115,16 +128,15 @@ def preprocess_dataset(
     x_test_scaled = scaler.transform(x_test)
 
     if use_smote:
-        x_train_balanced, y_train_balanced, smote_applied = _apply_smote(
+        x_train_balanced, y_train_balanced, balancing_applied = _apply_random_oversampling(
             x_train_scaled,
             y_train,
             random_state=random_state,
-            default_k_neighbors=smote_k_neighbors,
         )
     else:
         x_train_balanced = x_train_scaled
         y_train_balanced = y_train.to_numpy()
-        smote_applied = False
+        balancing_applied = False
 
     return PreprocessedData(
         raw_train=raw_train,
@@ -142,5 +154,6 @@ def preprocess_dataset(
         feature_names=list(x_train.columns),
         encoder=encoder,
         scaler=scaler,
-        smote_applied=smote_applied,
+        balancing_applied=balancing_applied,
+        balancing_method="random_oversampling" if balancing_applied else "none",
     )

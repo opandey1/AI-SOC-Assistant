@@ -115,7 +115,7 @@ class DatasetPaths:
     """Resolved NSL-KDD train and test file paths."""
 
     train: Path
-    test: Path
+    test: Path | None
 
 
 @dataclass(frozen=True)
@@ -145,8 +145,15 @@ def resolve_dataset_paths(
     train_path: str | Path | None = None,
     test_path: str | Path | None = None,
     search_roots: Iterable[str | Path] | None = None,
+    *,
+    require_test: bool = True,
 ) -> DatasetPaths:
-    """Resolve KDDTrain+.txt and KDDTest+.txt from explicit paths or known roots."""
+    """Resolve the required NSL-KDD files from explicit paths or known roots.
+
+    ``KDDTest+.txt`` is optional for workflows that create a hold-out split from
+    ``KDDTrain+.txt``. Cross-distribution evaluation and the interactive pipeline
+    keep the safer default and require both files.
+    """
 
     roots = [Path.cwd()]
     if search_roots is not None:
@@ -155,12 +162,16 @@ def resolve_dataset_paths(
     resolved_train = (
         Path(train_path) if train_path else _first_existing_path("KDDTrain+.txt", roots)
     )
-    resolved_test = Path(test_path) if test_path else _first_existing_path("KDDTest+.txt", roots)
+    resolved_test = (
+        Path(test_path)
+        if test_path
+        else _first_existing_path("KDDTest+.txt", roots) if require_test else None
+    )
 
     missing = []
     if resolved_train is None or not resolved_train.exists():
         missing.append("KDDTrain+.txt")
-    if resolved_test is None or not resolved_test.exists():
+    if require_test and (resolved_test is None or not resolved_test.exists()):
         missing.append("KDDTest+.txt")
     if missing:
         missing_files = ", ".join(missing)
@@ -169,7 +180,10 @@ def resolve_dataset_paths(
             "Place them in the repo root, in data/, or pass --train and --test."
         )
 
-    return DatasetPaths(train=resolved_train.resolve(), test=resolved_test.resolve())
+    resolved_test_path = (
+        resolved_test.resolve() if resolved_test is not None and resolved_test.exists() else None
+    )
+    return DatasetPaths(train=resolved_train.resolve(), test=resolved_test_path)
 
 
 def add_attack_family(df: pd.DataFrame) -> pd.DataFrame:
@@ -184,12 +198,23 @@ def load_nsl_kdd(
     train_path: str | Path | None = None,
     test_path: str | Path | None = None,
     search_roots: Iterable[str | Path] | None = None,
+    *,
+    require_test: bool = True,
 ) -> NslKddDataset:
-    """Load NSL-KDD train/test files and map fine-grained labels to families."""
+    """Load available NSL-KDD files and map fine-grained labels to families."""
 
-    paths = resolve_dataset_paths(train_path, test_path, search_roots)
+    paths = resolve_dataset_paths(
+        train_path,
+        test_path,
+        search_roots,
+        require_test=require_test,
+    )
     train_df = pd.read_csv(paths.train, names=NSL_KDD_COLUMNS)
-    test_df = pd.read_csv(paths.test, names=NSL_KDD_COLUMNS)
+    test_df = (
+        pd.read_csv(paths.test, names=NSL_KDD_COLUMNS)
+        if paths.test is not None
+        else pd.DataFrame(columns=NSL_KDD_COLUMNS)
+    )
     return NslKddDataset(
         train=add_attack_family(train_df),
         test=add_attack_family(test_df),

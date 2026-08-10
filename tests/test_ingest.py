@@ -1,12 +1,14 @@
 """Tests for NSL-KDD ingestion and attack-family mapping."""
 
 import pandas as pd
+import pytest
 
 from src.ingest import (
     CLASS_NAMES,
     INVERSE_LABEL_MAP,
     LABEL_MAP,
     add_attack_family,
+    resolve_dataset_paths,
 )
 
 
@@ -39,3 +41,26 @@ def test_add_attack_family_does_not_mutate_input():
     df = pd.DataFrame({"label": ["neptune"]})
     add_attack_family(df)
     assert "attack_family" not in df.columns
+
+
+def test_holdout_workflow_can_resolve_training_file_without_test_file(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    train_path = tmp_path / "KDDTrain+.txt"
+    train_path.write_text("placeholder", encoding="utf-8")
+
+    paths = resolve_dataset_paths(train_path=train_path, require_test=False)
+
+    assert paths.train == train_path.resolve()
+    assert paths.test is None
+
+
+def test_default_dataset_resolution_still_requires_test_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    train_path = tmp_path / "KDDTrain+.txt"
+    train_path.write_text("placeholder", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match=r"KDDTest\+\.txt"):
+        resolve_dataset_paths(train_path=train_path)
