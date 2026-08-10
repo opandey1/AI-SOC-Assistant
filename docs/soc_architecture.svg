@@ -11,15 +11,15 @@
 <text x="40" y="78" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="13.5" fill="#9ba0b5">Explainable intrusion triage — one NSL-KDD connection record in, an analyst-ready incident ticket out.</text>
 <rect x="40" y="97" width="900" height="1" fill="url(#fade)"></rect>
 <text x="40" y="126" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10" fill="#b5abfc" letter-spacing="0.09em">KDDTest+ · NOVEL ATTACK VARIANTS</text>
-<text x="40" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="31" font-weight="500" fill="#d2cefd">74.9%</text>
+<text x="40" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="31" font-weight="500" fill="#d2cefd">74.40%</text>
 <text x="40" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">accuracy</text>
-<text x="168" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="31" font-weight="500" fill="#d2cefd">0.53</text>
+<text x="168" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="31" font-weight="500" fill="#d2cefd">0.5149</text>
 <text x="168" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">macro F1</text>
 <line x1="300" y1="112" x2="300" y2="180" stroke="#2e3350" stroke-width="1"></line>
 <text x="332" y="126" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10" fill="#8a8fa3" letter-spacing="0.09em">KDDTrain+ 80/20 HOLD-OUT · IN-DISTRIBUTION</text>
-<text x="332" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="24" font-weight="500" fill="#9ba0b5">99.90%</text>
+<text x="332" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="24" font-weight="500" fill="#9ba0b5">99.88%</text>
 <text x="332" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">accuracy</text>
-<text x="460" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="24" font-weight="500" fill="#9ba0b5">0.966</text>
+<text x="460" y="158" font-family="ui-monospace, SFMono-Regular, &#39;SF Mono&#39;, Menlo, Consolas, monospace" font-size="24" font-weight="500" fill="#9ba0b5">0.9655</text>
 <text x="460" y="174" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8a8fa3" letter-spacing="0.05em">macro F1</text>
 <text x="40" y="198" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">The hold-out split shares attack variants across both folds; KDDTest+ deliberately withholds them. The lower pair is the number that generalises.</text>
 <rect x="40" y="226" width="600" height="106" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
@@ -48,8 +48,8 @@
 <text x="261" y="437" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">StandardScaler</text>
 <text x="261" y="453" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">fit on the training fold</text>
 <rect x="442" y="418" width="182" height="46" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
-<text x="454" y="437" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">SMOTE</text>
-<text x="454" y="453" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">k_neighbors ≤ 3, train only</text>
+<text x="454" y="437" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#edeff7">Random oversampling</text>
+<text x="454" y="453" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">exact rows, train only</text>
 <line x1="146" y1="492" x2="146" y2="514" stroke="#9ba0b5" stroke-width="2" marker-end="url(#arr)"></line>
 <text x="162" y="509" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">Scaled, class-balanced feature vectors</text>
 <rect x="40" y="526" width="600" height="274" rx="8" fill="#1a1c2e" stroke="#2e3350" stroke-width="1"></rect>
@@ -66,10 +66,11 @@
 <text x="358" y="621" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" font-weight="400" fill="#9ba0b5">Fit on normal traffic only</text>
 <rect x="56" y="646" width="568" height="44" rx="6" fill="#2b2741" stroke="#5d5294" stroke-width="1"></rect>
 <text x="70" y="665" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#d2cefd">Score fusion</text>
-<text x="70" y="681" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#9ba0b5">0.6 × RF confidence + 0.4 × normalised ISO score  ·  flag if class ≠ normal OR iso_norm &gt; 0.7</text>
+<text x="70" y="681" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#9ba0b5">0.6 × RF anomaly confidence + 0.4 × IF risk · alert if RF class ≠ normal OR IF risk ≥ 0.7</text>
 <path d="M624 668 H668" stroke="#5d5294" stroke-width="1.25" stroke-dasharray="7 5" marker-end="url(#arrA)" fill="none"></path>
-<rect x="680" y="650" width="220" height="36" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1"></rect>
-<text x="692" y="673" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11.5" fill="#9ba0b5">Classified normal → no ticket</text>
+<rect x="680" y="646" width="220" height="44" rx="6" fill="#1c1f31" stroke="#2e3350" stroke-width="1"></rect>
+<text x="692" y="664" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#9ba0b5">No ticket: RF normal AND</text>
+<text x="692" y="680" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="10.5" fill="#9ba0b5">IF risk below threshold</text>
 <rect x="56" y="708" width="568" height="1" fill="#2e3350"></rect>
 <text x="56" y="726" font-family="Inter, -apple-system, BlinkMacSystemFont, &#39;Segoe UI&#39;, Helvetica, Arial, sans-serif" font-size="11" fill="#8a8fa3">The Random Forest verdict, in MITRE ATT&amp;CK terms</text>
 <rect x="56" y="734" width="107" height="48" rx="6" fill="#20233a" stroke="#2e3350" stroke-width="1"></rect>
