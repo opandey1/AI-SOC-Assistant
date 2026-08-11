@@ -19,6 +19,7 @@ data/*.csv
 KDDTrain+.txt
 KDDTest+.txt
 models/
+state/
 .env
 .env.*
 !.env.example

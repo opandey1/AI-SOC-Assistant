@@ -5,6 +5,12 @@
 #   docker compose --profile local-llm up -d ollama
 #   docker compose --profile local-llm exec ollama ollama pull mistral
 #   docker compose --profile local-llm run --rm soc-assistant-ollama
+#
+# Analyst dashboard:
+#   docker compose --profile dashboard up dashboard
+#
+# Kafka-compatible live replay:
+#   docker compose --profile streaming up
 
 services:
   soc-assistant:
@@ -14,6 +20,7 @@ services:
       SOC_ENABLE_THREAT_INTEL: "false"
     volumes:
       - ./data:/app/data:ro
+      - soc-state:/app/state
     network_mode: none
     command: ["python", "-m", "src.pipeline", "--no-llm"]
 
@@ -45,7 +52,106 @@ services:
       SOC_ENABLE_THREAT_INTEL: "false"
     volumes:
       - ./data:/app/data:ro
+      - soc-state:/app/state
+      - soc-models:/app/models
     command: ["python", "-m", "src.pipeline", "--provider", "ollama"]
+
+  dashboard:
+    build: .
+    profiles: ["dashboard"]
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ./data:/app/data:ro
+      - soc-state:/app/state
+      - soc-models:/app/models
+    command:
+      [
+        "streamlit",
+        "run",
+        "streamlit_app.py",
+        "--server.address=0.0.0.0",
+        "--server.port=8501",
+      ]
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v26.2.1
+    profiles: ["streaming"]
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --default-log-level=info
+    ports:
+      - "127.0.0.1:19092:19092"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health", "--brokers=localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  soc-stream-consumer:
+    build: .
+    profiles: ["streaming"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SOC_ENABLE_THREAT_INTEL: "false"
+    volumes:
+      - ./data:/app/data:ro
+      - soc-state:/app/state
+      - soc-models:/app/models
+    command:
+      [
+        "python",
+        "-m",
+        "src.streaming",
+        "consume",
+        "--bootstrap-servers",
+        "redpanda:9092",
+        "--idle-timeout",
+        "60",
+      ]
+
+  soc-stream-publisher:
+    build: .
+    profiles: ["streaming"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+    command:
+      [
+        "python",
+        "-m",
+        "src.streaming",
+        "publish",
+        "--bootstrap-servers",
+        "redpanda:9092",
+        "--limit",
+        "25",
+        "--delay",
+        "0.5",
+      ]
 
 volumes:
   ollama-models:
+  redpanda-data:
+  soc-models:
+  soc-state:

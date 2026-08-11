@@ -15,7 +15,11 @@ RUN python -m pip install --upgrade pip \
     && adduser --system --ingroup app --home /home/app app
 
 COPY --chown=app:app src ./src
+COPY --chown=app:app streamlit_app.py ./streamlit_app.py
+COPY --chown=app:app .streamlit ./.streamlit
 COPY --chown=app:app data/README.md ./data/README.md
+RUN mkdir -p /app/state /app/models \
+    && chown -R app:app /app/state /app/models
 
 # The NSL-KDD text files are large and gitignored, so they are NOT baked into
 # the image. Mount them at runtime, e.g.:

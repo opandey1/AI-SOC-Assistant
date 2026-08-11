@@ -1,0 +1,37 @@
+[theme]
+base = "light"
+primaryColor = "#087F5B"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F5F7"
+textColor = "#17202A"
+linkColor = "#075E45"
+codeTextColor = "#24313A"
+codeBackgroundColor = "#EEF1F3"
+borderColor = "#CED5DA"
+redColor = "#C23B3B"
+orangeColor = "#B96500"
+yellowColor = "#9A6B00"
+greenColor = "#087F5B"
+blueColor = "#2563A6"
+violetColor = "#7251A8"
+grayColor = "#5F6B73"
+chartCategoricalColors = ["#087F5B", "#D38B16", "#C23B3B", "#2563A6", "#7251A8", "#5F6B73"]
+dataframeBorderColor = "#CED5DA"
+dataframeHeaderBackgroundColor = "#E8ECEF"
+font = "sans-serif"
+codeFont = "monospace"
+baseFontSize = 15
+headingFontSizes = ["30px", "24px", "20px", "17px", "15px", "13px"]
+headingFontWeights = [650, 650, 600, 600, 600, 600]
+baseRadius = "6px"
+buttonRadius = "6px"
+showWidgetBorder = true
+showSidebarBorder = true
+linkUnderline = false
+
+[theme.sidebar]
+backgroundColor = "#F3F5F7"
+secondaryBackgroundColor = "#E7EBEE"
+textColor = "#17202A"
+borderColor = "#CED5DA"
+primaryColor = "#087F5B"
