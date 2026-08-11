@@ -21,6 +21,8 @@ An explainable AI triage pipeline that classifies NSL-KDD network connections in
 - **Native multi-class SOC detection:** Specific attack families (Normal, DoS, Probe, R2L, U2R) instead of a single binary anomaly flag.
 - **Dual-model triage:** A Random Forest predicts the attack family while an Isolation Forest adds an unsupervised anomaly signal for suspicious traffic patterns.
 - **Explainable evidence:** SHAP identifies the strongest feature drivers for each flagged connection and passes analyst-readable values into the ticket.
+- **Live analyst workflow:** Delayed replay and Kafka-compatible ingestion feed the same classifier, SHAP explainer, SQLite review queue, and Streamlit console.
+- **Human-in-the-loop learning:** Reviewed false positives become weighted correction examples in a versioned Random Forest artifact.
 - **Local-first GenAI:** Deterministic template mode makes no network calls. Ollama keeps the LLM prompt on the configured local server, and external threat-intelligence lookups are disabled unless explicitly enabled.
 - **Operational output:** The final response is a structured incident ticket with containment steps and copy-pasteable Splunk SPL queries.
 
@@ -40,7 +42,20 @@ Evaluated on a **stratified 80/20 hold-out split of `KDDTrain+`** (deterministic
 
 ![Confusion matrix](docs/evaluation/holdout/confusion_matrix.png)
 
-> **Honest generalization note.** `KDDTest+` is deliberately constructed to contain novel attack variants not present in training, so cross-distribution accuracy drops to **74.40%** (macro F1 0.5149), with recall on the rare `r2l` and `u2r` families being the hardest. Reproduce this harder evaluation with `python -m src.evaluate --use-test-set`. Closing that gap with richer features and multi-dataset validation (CICIDS2017, UNSW-NB15) is tracked as future work.
+> **Honest generalization note.** `KDDTest+` is deliberately constructed to contain novel attack variants not present in training, so cross-distribution accuracy drops to **74.40%** (macro F1 0.5149), with recall on the rare `r2l` and `u2r` families being the hardest. Reproduce this harder evaluation with `python -m src.evaluate --use-test-set`. The external UNSW-NB15 result below shows that the remaining domain shift is substantially harder.
+
+### External Transfer Validation
+
+The zero-tuning UNSW-NB15 benchmark trains a separate Random Forest on **seven shared or closest-compatible flow fields from NSL-KDD only**, then evaluates 63,461 supported UNSW-NB15 test flows. `Generic` attacks are excluded because this project's five-family taxonomy has no defensible equivalent.
+
+| Protocol | Accuracy | Balanced accuracy | Macro F1 | Binary attack F1 |
+| --- | ---: | ---: | ---: | ---: |
+| NSL-KDD common-feature hold-out | 97.05% | 95.49% | 87.97% | 99.13% |
+| UNSW-NB15 zero-tuning transfer | 58.89% | 20.64% | **16.02%** | **2.77%** |
+
+![NSL-KDD hold-out and UNSW-NB15 transfer confusion matrices](docs/evaluation/unsw_transfer/confusion_matrix.png)
+
+This is a **negative but useful result**: the model largely collapses to `normal` under the newer capture environment. It demonstrates why the NSL-KDD headline score is not a production claim and establishes a reproducible baseline for a future Zeek/SIEM feature adapter and modern-data retraining. See the [full transfer report](docs/evaluation/unsw_transfer/metrics.md) and [machine-readable metrics](docs/evaluation/unsw_transfer/metrics.json).
 
 ## Explainability in Action
 
@@ -99,6 +114,56 @@ python -m src.pipeline --no-llm
 
 This path uses the template ticket renderer and performs no LLM or threat-intelligence network calls.
 
+### Analyst console
+
+Launch the Streamlit triage, SHAP, ticket-review, and model-operations console:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The console reads the same NSL-KDD files, persists alert tickets to `state/soc_feedback.db`, and automatically offers `models/soc_model.joblib` after feedback retraining.
+
+### Live event ingestion
+
+Replay test connections one event at a time with a visible delay:
+
+```bash
+python -m src.streaming replay --limit 10 --delay 0.5
+```
+
+Run a Kafka-compatible broker, consumer, and delayed publisher with the pinned Redpanda Compose profile:
+
+```bash
+docker compose --profile streaming up --build
+```
+
+The Kafka topic uses a documented JSON envelope containing event metadata plus all 41 NSL-KDD model-input fields. The consumer trains once, scores continuously, and stores generated alert tickets in SQLite. To connect to another broker, use `python -m src.streaming consume --bootstrap-servers HOST:PORT` and `python -m src.streaming publish --bootstrap-servers HOST:PORT`.
+
+### Analyst feedback and retraining
+
+Review tickets from the console or CLI, then update the Random Forest:
+
+```bash
+python -m src.feedback list --state unreviewed
+python -m src.feedback review 1 --disposition false_positive --corrected-class normal
+python -m src.retrain
+python -m src.streaming replay --model models/soc_model.joblib --limit 10 --delay 0
+```
+
+Reviews are append-only for auditability. Retraining leaves the Isolation Forest fixed, gives reviewed corrections an explicit sample weight, writes an atomic/versioned model artifact, and reports both correction behavior and whole-test metrics. The validated example changed a ground-truth normal row from `probe` to `normal`, raising corrected-class probability from **2.83% to 50.22%**; see the [feedback update report](docs/evaluation/feedback_retraining/metrics.md).
+
+### External dataset benchmark
+
+Download the checksum-verified UNSW-NB15 test partition and regenerate the transfer report:
+
+```bash
+python scripts/download_unsw_nb15.py
+python -m src.validate_unsw
+```
+
+The raw CSV is gitignored. Review the UNSW academic-use terms and citation guidance linked from [data/README.md](data/README.md).
+
 ### Optional LLM providers
 
 To generate a ticket with a locally running Ollama server:
@@ -154,14 +219,23 @@ docker compose --profile local-llm run --rm soc-assistant-ollama
 docker compose --profile local-llm down
 ```
 
+Launch only the dashboard profile at `http://localhost:8501`:
+
+```bash
+docker compose --profile dashboard up --build dashboard
+```
+
+Dashboard tickets and retrained model artifacts persist in the named `soc-state` and
+`soc-models` volumes. The streaming profile uses `redpanda-data` for broker state.
+
 Pulling an image or model requires network access. After those artifacts are present locally, the pipeline prompt is sent only to the Ollama service configured in Compose. Do not enable `SOC_ENABLE_THREAT_INTEL` if the deployment must avoid external API calls.
 
 ### Tests
 
 ```bash
 python -m pip install pytest==8.3.4 flake8==7.1.1 black==24.10.0
-python -m black --check src tests scripts
-python -m flake8 src tests scripts
+python -m black --check streamlit_app.py src tests scripts
+python -m flake8 streamlit_app.py src tests scripts
 python -m pytest
 ```
 
@@ -175,9 +249,17 @@ src/
   explain.py      SHAP explanation bundle generation
   agent.py        LangGraph SOC analyst agent and threat-intel tools
   evaluate.py     metrics, confusion matrix, and SHAP artifact generation
+  feedback.py     SQLite ticket store and append-only analyst reviews
+  model_store.py  atomic, versioned fitted-model artifacts
   pipeline.py     runnable command-line pipeline
+  retrain.py      analyst-feedback Random Forest update
+  runtime.py      shared single-connection analysis runtime
+  streaming.py    delayed replay plus Kafka consumer/publisher
+  validate_unsw.py  zero-tuning UNSW-NB15 transfer benchmark
 scripts/
   generate_readme_assets.py   terminal GIF and ticket-preview generator
+  download_unsw_nb15.py       checksum-verified external dataset downloader
+streamlit_app.py  analyst triage, review queue, and model operations console
 tests/            pytest unit tests for ingestion, preprocessing, SHAP, tickets
 notebooks/
   AI_Powered_SOC_Assistant.ipynb
@@ -188,15 +270,30 @@ Dockerfile, docker-compose.yml
 
 ## Demo Artifacts
 
+- [Long-term implementation record and reproducible commands](docs/LONG_TERM_IMPLEMENTATION.md)
 - [Architecture diagram](docs/soc_architecture.svg)
 - [Animated pipeline demo](docs/demo.gif) and [lightweight SVG version](docs/demo.svg)
 - [Generated ticket preview](docs/ticket_preview.png)
 - [Hold-out confusion matrix](docs/evaluation/holdout/confusion_matrix.png) and [per-class metrics](docs/evaluation/holdout/metrics.md)
 - [Hold-out SHAP driver plot](docs/evaluation/holdout/shap_drivers.png) and [SHAP evidence bundle](docs/evaluation/holdout/shap_example_output.json)
 - [Cross-distribution metrics](docs/evaluation/cross_distribution/metrics.md)
+- [UNSW-NB15 transfer metrics](docs/evaluation/unsw_transfer/metrics.md) and [confusion matrices](docs/evaluation/unsw_transfer/confusion_matrix.png)
+- [Analyst-feedback retraining example](docs/evaluation/feedback_retraining/metrics.md)
 - [Sample generated ticket](docs/sample_ticket.md)
 - [Evolution brief](docs/SOC_Assistant_Evolution.pdf)
 - [Colab notebook](notebooks/AI_Powered_SOC_Assistant.ipynb)
+
+## Roadmap / Future Work
+
+The [Unified SOC project roadmap](docs/unified_soc_roadmap.md) treats this repository as the explainable ML pre-triage layer for a larger **MCP + Agentic-SOC** system. The implemented Kafka event contract, SHAP evidence bundle, SQLite verdict history, and versioned model artifact are the integration boundary for:
+
+1. SIEM/Zeek schema adapters feeding live normalized connection events.
+2. MCP tools exposing scoring, ticket retrieval, and analyst verdict operations.
+3. An Agentic-SOC triage layer grounded by model confidence and SHAP evidence.
+4. Kali MCP validation and Sigma-rule generation with human approval gates.
+5. Validated true/false-positive outcomes returning to this repository's retraining loop.
+
+The separate Agentic-SOC and Unified SOC design work is not yet published as a GitHub repository, so this README links to the versioned integration plan instead of a speculative or broken public URL.
 
 ## Evolution & Wins
 
