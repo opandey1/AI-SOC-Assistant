@@ -11,6 +11,7 @@ from uuid import uuid4
 import pandas as pd
 import streamlit as st
 
+from src import ui
 from src.feedback import CORRECTABLE_CLASSES, REVIEW_DISPOSITIONS, FeedbackStore
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resolve_dataset_paths
 from src.model_store import load_model_artifact, runtime_from_artifact
@@ -28,11 +29,40 @@ DEFAULT_DATABASE = PROJECT_ROOT / "state" / "soc_feedback.db"
 DEFAULT_MODEL = PROJECT_ROOT / "models" / "soc_model.joblib"
 DEFAULT_RETRAIN_REPORT = PROJECT_ROOT / "state" / "retrain_report.json"
 
+# Published evaluation results (docs/evaluation/*). Reported hardest-first.
+EVALUATION_PROTOCOLS = (
+    (
+        "Cross-dataset transfer",
+        "UNSW-NB15 · 63,461 rows",
+        0.5889,
+        0.1602,
+        ui.TOKENS["status-alert"],
+        "Zero tuning across a different capture, feature definition, and attack taxonomy.",
+    ),
+    (
+        "Cross-distribution",
+        "KDDTest+ · 22,544 rows",
+        0.7440,
+        0.5149,
+        ui.TOKENS["status-warn"],
+        "Novel attack variants absent from the training split.",
+    ),
+    (
+        "Stratified hold-out",
+        "KDDTrain+ · 25,195 rows",
+        0.9988,
+        0.9655,
+        ui.TOKENS["status-ok"],
+        "In-distribution ceiling. Listed last — it invites variant-leakage skepticism.",
+    ),
+)
+
 st.set_page_config(
     page_title="SOC analyst console",
     page_icon=":material/security:",
     layout="wide",
 )
+st.html(ui.CSS)
 
 
 @st.cache_resource(max_entries=3, show_spinner=False)
@@ -79,63 +109,66 @@ def persist_alert(
 
 
 def show_analysis(analysis: ConnectionAnalysis, ticket_id: int | None) -> None:
-    badge_color = "red" if analysis.score.fused_anomaly else "green"
-    badge_icon = ":material/warning:" if analysis.score.fused_anomaly else ":material/check_circle:"
-    st.badge(analysis.verdict.upper(), color=badge_color, icon=badge_icon)
-
-    with st.container(horizontal=True):
-        st.metric("Classification", analysis.predicted_class.upper(), border=True)
-        st.metric(
-            "Fused confidence", analysis.score.fused_confidence, format="percent", border=True
+    score = analysis.score
+    st.html(
+        ui.verdict_card(
+            predicted_class=analysis.predicted_class,
+            is_alert=score.fused_anomaly,
+            fused_confidence=score.fused_confidence,
+            rf_confidence=score.rf_confidence,
+            isolation_risk=score.isolation_risk,
+            isolation_score=score.isolation_score,
+            isolation_threshold=float(analysis.evidence.get("isolation_threshold", 0.7)),
+            alert_reason=score.alert_reason,
         )
-        st.metric("RF confidence", analysis.score.rf_confidence, format="percent", border=True)
-        st.metric("Isolation risk", analysis.score.isolation_risk, format="percent", border=True)
-
-    st.subheader("SHAP evidence")
-    drivers = pd.DataFrame(analysis.evidence.get("top_shap_drivers", []))
-    if drivers.empty:
-        st.caption("No SHAP drivers were generated for this verdict.")
-    else:
-        drivers = drivers.rename(
-            columns={
-                "feature": "Feature",
-                "true_value": "Observed value",
-                "shap_value": "SHAP contribution",
-                "direction": "Direction",
-            }
-        )
-        st.bar_chart(
-            drivers,
-            x="Feature",
-            y="SHAP contribution",
-            color="Direction",
-            horizontal=True,
-            height=330,
-        )
-        st.dataframe(
-            drivers,
-            hide_index=True,
-            column_config={
-                "SHAP contribution": st.column_config.NumberColumn(format="%.5f"),
-            },
-        )
-
-    st.subheader("Incident ticket")
-    if analysis.ticket:
-        if ticket_id is not None:
-            st.caption(f"Stored as review ticket #{ticket_id}")
-        st.markdown(analysis.ticket)
-    else:
-        st.success("Normal verdict. No incident ticket generated.", icon=":material/check_circle:")
-
-    evidence_expander = st.expander(
-        "Scoring details",
-        icon=":material/data_object:",
-        on_change="rerun",
     )
-    if evidence_expander.open:
-        with evidence_expander:
+
+    evidence_col, ticket_col = st.columns([1.05, 1], gap="medium")
+
+    with evidence_col:
+        evidence_body = ""
+        if score.isolation_anomaly:
+            evidence_body += ui.callout(
+                "Isolation Forest signal",
+                f"Risk {score.isolation_risk:.1%} against the configured threshold. "
+                f"Raw decision score {score.isolation_score:.6f}, "
+                "where lower is more anomalous.",
+                ui.TOKENS["status-warn"],
+            )
+        evidence_body += ui.evidence_rows(analysis.evidence.get("top_shap_drivers", []))
+        st.html(
+            ui.card(
+                "Why this was flagged",
+                "Top SHAP drivers for the predicted class, shown as real observed values.",
+                evidence_body,
+            )
+        )
+
+        with st.expander("Scoring details", icon=":material/data_object:"):
             st.json(analysis.evidence)
+
+    with ticket_col:
+        st.html(ui.panel_header("Incident ticket"))
+        if analysis.ticket:
+            if ticket_id is not None:
+                st.html(ui.pill(f"STORED AS TICKET #{ticket_id}", ui.TOKENS["accent"], dot=False))
+            st.markdown(analysis.ticket)
+            st.download_button(
+                "Download ticket",
+                data=analysis.ticket,
+                file_name=f"incident_ticket_{ticket_id or 'draft'}.md",
+                mime="text/markdown",
+                icon=":material/download:",
+            )
+        else:
+            st.html(
+                ui.callout(
+                    "Normal verdict",
+                    "Fused scoring cleared this connection. No incident ticket was generated "
+                    "and nothing was written to the review queue.",
+                    ui.TOKENS["status-ok"],
+                )
+            )
 
 
 for key, default_value in {
@@ -146,9 +179,6 @@ for key, default_value in {
     if key not in st.session_state:
         st.session_state[key] = default_value
 
-st.title("SOC analyst console")
-st.caption("AI-SOC-Assistant / detection, explanation, review")
-
 try:
     dataset_paths = resolve_dataset_paths(search_roots=[PROJECT_ROOT, Path.cwd()])
 except FileNotFoundError as exc:
@@ -156,7 +186,7 @@ except FileNotFoundError as exc:
     st.stop()
 
 with st.sidebar:
-    st.subheader("Session")
+    st.html(ui.section_label("SESSION"))
     model_options = ["Baseline"]
     if DEFAULT_MODEL.exists():
         model_options.append("Retrained")
@@ -172,11 +202,29 @@ with st.sidebar:
         index=0,
     )
     database_value = st.text_input("Review database", value=str(DEFAULT_DATABASE))
-    st.caption(f"Train rows: {count_rows(str(dataset_paths.train)):,}")
-    st.caption(f"Test file: {dataset_paths.test.name}")
+
+    st.html(ui.section_label("DATASET"))
+    st.html(
+        ui.kv_block(
+            [
+                ("Training rows", f"{count_rows(str(dataset_paths.train)):,}", None),
+                ("Evaluation file", dataset_paths.test.name, None),
+                ("Model families", "5", None),
+            ]
+        )
+    )
 
 store = FeedbackStore(Path(database_value))
 active_model_path = str(DEFAULT_MODEL) if model_mode == "Retrained" else None
+queue_summary = store.summary()
+
+st.html(
+    ui.topbar(
+        model_version="retrained" if active_model_path else "baseline-nsl-kdd",
+        provider=provider,
+    )
+)
+
 view = st.segmented_control(
     "Workspace",
     ["Triage", "Review queue", "Model"],
@@ -186,6 +234,11 @@ view = st.segmented_control(
 
 if view == "Triage":
     st.header("Connection triage")
+    st.caption(
+        "Score a single connection, inspect the SHAP drivers behind the verdict, "
+        "and generate an analyst ticket."
+    )
+
     input_mode = st.segmented_control(
         "Input",
         ["Dataset row", "JSON record", "Live replay"],
@@ -224,7 +277,7 @@ if view == "Triage":
                     )
                 )
         submitted = st.form_submit_button(
-            "Start replay" if input_mode == "Live replay" else "Analyze",
+            "Start replay" if input_mode == "Live replay" else "Analyze connection",
             type="primary",
             icon=":material/play_arrow:",
         )
@@ -321,15 +374,48 @@ if view == "Triage":
 
     if st.session_state.last_analysis is not None:
         show_analysis(st.session_state.last_analysis, st.session_state.last_ticket_id)
+    else:
+        st.html(
+            ui.empty_state(
+                ui.ICON_SCAN,
+                "No connection scored yet",
+                "Pick a test row, paste a connection record, or start a live replay. "
+                "The verdict, SHAP drivers and generated ticket appear here.",
+            )
+        )
 
 elif view == "Review queue":
     st.header("Analyst review queue")
-    queue_summary = store.summary()
-    with st.container(horizontal=True):
-        st.metric("Tickets", queue_summary["total"], border=True)
-        st.metric("Unreviewed", queue_summary["unreviewed"], border=True)
-        st.metric("Reviewed", queue_summary["reviewed"], border=True)
-        st.metric("False positives", queue_summary["false_positives"], border=True)
+    st.caption(
+        "Every scored connection is stored in SQLite. Reviews are append-only — "
+        "the latest disposition wins, the history is preserved."
+    )
+
+    st.html(
+        ui.tile_row(
+            [
+                ui.tile("TICKETS", f"{queue_summary['total']:,}", "all time"),
+                ui.tile(
+                    "UNREVIEWED",
+                    f"{queue_summary['unreviewed']:,}",
+                    "awaiting analyst",
+                    color=ui.TOKENS["status-warn"],
+                ),
+                ui.tile(
+                    "REVIEWED",
+                    f"{queue_summary['reviewed']:,}",
+                    "dispositioned",
+                    color=ui.TOKENS["status-ok"],
+                ),
+                ui.tile(
+                    "FALSE POSITIVES",
+                    f"{queue_summary['false_positives']:,}",
+                    "feed retraining",
+                    color=ui.TOKENS["status-info"],
+                ),
+            ]
+        )
+    )
 
     review_state = st.segmented_control(
         "Review state",
@@ -354,100 +440,201 @@ elif view == "Review queue":
                 for ticket in tickets
             ]
         )
-        selection = st.dataframe(
-            queue,
-            hide_index=True,
-            key="review_queue_table",
-            on_select="rerun",
-            selection_mode="single-row",
-            column_config={
-                "ID": st.column_config.NumberColumn(format="#%d", pinned=True),
-                "Confidence": st.column_config.ProgressColumn(
-                    min_value=0.0,
-                    max_value=1.0,
-                    format="percent",
-                ),
-            },
-        )
-        if selection.selection.rows:
-            selected = tickets[selection.selection.rows[0]]
-            st.subheader(f"Ticket #{selected.id}")
-            with st.form("review_form"):
-                disposition = st.selectbox(
-                    "Disposition",
-                    REVIEW_DISPOSITIONS,
-                    format_func=lambda value: value.replace("_", " ").capitalize(),
-                )
-                corrected_class = st.selectbox(
-                    "Corrected class",
-                    CORRECTABLE_CLASSES,
-                    index=CORRECTABLE_CLASSES.index("normal"),
-                )
-                analyst = st.text_input("Analyst", value="analyst")
-                notes = st.text_area("Notes")
-                review_submitted = st.form_submit_button(
-                    "Save review",
-                    type="primary",
-                    icon=":material/save:",
-                )
-            if review_submitted:
-                store.record_review(
-                    selected.id,
-                    disposition=disposition,
-                    corrected_class=corrected_class,
-                    analyst_notes=notes,
-                    reviewed_by=analyst,
-                )
-                st.toast("Review saved", icon=":material/check_circle:")
-                st.rerun()
+        table_col, detail_col = st.columns([1.5, 1], gap="medium")
+        with table_col:
+            selection = st.dataframe(
+                queue,
+                hide_index=True,
+                key="review_queue_table",
+                on_select="rerun",
+                selection_mode="single-row",
+                # Size to content so short queues don't render a block of blank rows.
+                height=min(460, 44 + 35 * len(queue)),
+                column_config={
+                    "ID": st.column_config.NumberColumn(format="#%d", pinned=True),
+                    "Confidence": st.column_config.ProgressColumn(
+                        min_value=0.0,
+                        max_value=1.0,
+                        format="percent",
+                    ),
+                },
+            )
 
-            ticket_expander = st.expander(
-                "Incident ticket",
-                icon=":material/article:",
-                on_change="rerun",
-            )
-            if ticket_expander.open:
-                with ticket_expander:
+        with detail_col:
+            if not selection.selection.rows:
+                st.html(
+                    ui.empty_state(
+                        ui.ICON_QUEUE,
+                        "No ticket selected",
+                        "Select a row to see its evidence bundle and record a disposition. "
+                        "False positives with a corrected class feed the retraining cohort.",
+                    )
+                )
+            else:
+                selected = tickets[selection.selection.rows[0]]
+                st.html(
+                    ui.card(
+                        f"Ticket #{selected.id}",
+                        "",
+                        ui.family_chip(selected.predicted_class)
+                        + '<div style="height:10px"></div>'
+                        + ui.kv_block(
+                            [
+                                ("Event", selected.event_id, None),
+                                ("Source IP", selected.source_ip, None),
+                                ("Model", selected.model_version, None),
+                                (
+                                    "Fused confidence",
+                                    f"{selected.fused_confidence:.1%}",
+                                    ui.TOKENS["accent"],
+                                ),
+                            ]
+                        ),
+                    )
+                )
+
+                with st.form("review_form"):
+                    disposition = st.selectbox(
+                        "Disposition",
+                        REVIEW_DISPOSITIONS,
+                        format_func=lambda value: value.replace("_", " ").capitalize(),
+                    )
+                    corrected_class = st.selectbox(
+                        "Corrected class",
+                        CORRECTABLE_CLASSES,
+                        index=CORRECTABLE_CLASSES.index("normal"),
+                    )
+                    analyst = st.text_input("Analyst", value="analyst")
+                    notes = st.text_area("Notes")
+                    review_submitted = st.form_submit_button(
+                        "Record review",
+                        type="primary",
+                        icon=":material/save:",
+                    )
+                if review_submitted:
+                    store.record_review(
+                        selected.id,
+                        disposition=disposition,
+                        corrected_class=corrected_class,
+                        analyst_notes=notes,
+                        reviewed_by=analyst,
+                    )
+                    st.toast("Review saved", icon=":material/check_circle:")
+                    st.rerun()
+
+                with st.expander("Incident ticket", icon=":material/article:"):
                     st.markdown(selected.ticket_text)
-            evidence_expander = st.expander(
-                "Evidence bundle",
-                icon=":material/data_object:",
-                on_change="rerun",
-            )
-            if evidence_expander.open:
-                with evidence_expander:
+                with st.expander("Evidence bundle", icon=":material/data_object:"):
                     st.json(selected.evidence)
 
 else:
     st.header("Model operations")
-    feedback_examples = store.feedback_examples()
-    with st.container(horizontal=True):
-        st.metric("Active model", model_mode, border=True)
-        st.metric("Feedback examples", len(feedback_examples), border=True)
-        st.metric("Artifact", "Available" if DEFAULT_MODEL.exists() else "Not trained", border=True)
-
-    st.caption(str(DEFAULT_MODEL))
-    retrain_clicked = st.button(
-        "Retrain Random Forest",
-        type="primary",
-        icon=":material/model_training:",
-        disabled=not feedback_examples,
+    st.caption(
+        "Promote analyst-reviewed false positives into a weighted retraining run, then "
+        "compare the candidate against every evaluation protocol before adopting it."
     )
-    if retrain_clicked:
-        with st.status("Applying analyst feedback", expanded=True) as status:
-            status.write(f"Loading {len(feedback_examples)} reviewed false-positive event(s)")
-            report = retrain_from_feedback(
-                database_path=Path(database_value),
-                output_model=DEFAULT_MODEL,
-                train_path=dataset_paths.train,
-                test_path=dataset_paths.test,
+
+    feedback_examples = store.feedback_examples()
+    st.html(
+        ui.tile_row(
+            [
+                ui.tile("ACTIVE MODEL", model_mode, "loaded from artifact", small=True),
+                ui.tile(
+                    "FEEDBACK EXAMPLES",
+                    str(len(feedback_examples)),
+                    "false positives corrected",
+                    color=ui.TOKENS["status-info"],
+                ),
+                ui.tile(
+                    "ARTIFACT",
+                    "Available" if DEFAULT_MODEL.exists() else "Not trained",
+                    DEFAULT_MODEL.name,
+                    color=(
+                        ui.TOKENS["status-ok"]
+                        if DEFAULT_MODEL.exists()
+                        else ui.TOKENS["text-tertiary"]
+                    ),
+                    small=True,
+                ),
+                ui.tile(
+                    "REVIEWED",
+                    f"{queue_summary['reviewed']:,}",
+                    "of {:,} tickets".format(queue_summary["total"]),
+                ),
+            ]
+        )
+    )
+
+    retrain_col, eval_col = st.columns([1, 1], gap="medium")
+
+    with retrain_col:
+        if feedback_examples:
+            cohort_body = ui.section_label("REVIEWED COHORT") + ui.kv_block(
+                [
+                    (
+                        f"#{example.ticket_id} · {example.event_id}",
+                        example.corrected_class,
+                        ui.family_color(example.corrected_class),
+                    )
+                    for example in feedback_examples[:6]
+                ]
             )
-            status.write("Saving versioned model artifact")
-            save_report(report, DEFAULT_RETRAIN_REPORT)
-            st.session_state.last_retrain_report = asdict(report)
-            get_runtime.clear()
-            status.update(label="Random Forest updated", state="complete", expanded=False)
-        st.toast("Retrained model is ready", icon=":material/check_circle:")
+        else:
+            cohort_body = ui.callout(
+                "No reviewed cohort yet",
+                "Mark at least one ticket as a false positive with a corrected class "
+                "in the review queue to enable retraining.",
+                ui.TOKENS["text-tertiary"],
+            )
+        cohort_body += '<div style="height:12px"></div>' + ui.callout(
+            "Promotion is not automatic",
+            "A single correction changes the intended row but can reduce aggregate "
+            "cross-distribution accuracy. Production promotion needs a larger cohort "
+            "and a held-out acceptance gate.",
+            ui.TOKENS["status-warn"],
+        )
+        st.html(
+            ui.card(
+                "Feedback retraining",
+                "Corrected rows are appended to the training set with an elevated sample weight.",
+                cohort_body,
+            )
+        )
+
+        retrain_clicked = st.button(
+            "Retrain Random Forest",
+            type="primary",
+            icon=":material/model_training:",
+            disabled=not feedback_examples,
+            width="stretch",
+        )
+        if retrain_clicked:
+            with st.status("Applying analyst feedback", expanded=True) as status:
+                status.write(f"Loading {len(feedback_examples)} reviewed false-positive event(s)")
+                report = retrain_from_feedback(
+                    database_path=Path(database_value),
+                    output_model=DEFAULT_MODEL,
+                    train_path=dataset_paths.train,
+                    test_path=dataset_paths.test,
+                )
+                status.write("Saving versioned model artifact")
+                save_report(report, DEFAULT_RETRAIN_REPORT)
+                st.session_state.last_retrain_report = asdict(report)
+                get_runtime.clear()
+                status.update(label="Random Forest updated", state="complete", expanded=False)
+            st.toast("Retrained model is ready", icon=":material/check_circle:")
+
+    with eval_col:
+        st.html(
+            ui.card(
+                "Evaluation protocols",
+                "Three independent protocols, reported hardest-first.",
+                "".join(
+                    ui.protocol_card(name, dataset, accuracy, macro_f1, colour, blurb)
+                    for name, dataset, accuracy, macro_f1, colour, blurb in EVALUATION_PROTOCOLS
+                ),
+            )
+        )
 
     if st.session_state.last_retrain_report is None and DEFAULT_RETRAIN_REPORT.exists():
         st.session_state.last_retrain_report = json.loads(
@@ -455,26 +642,32 @@ else:
         )
     if st.session_state.last_retrain_report:
         report = st.session_state.last_retrain_report
-        st.subheader("Latest update")
-        with st.container(horizontal=True):
-            st.metric("Version", report["model_version"], border=True)
-            st.metric(
-                "Corrected before",
-                f"{report['feedback_corrected_before']}/{report['feedback_examples']}",
-                border=True,
+        delta = report["updated_macro_f1"] - report["baseline_macro_f1"]
+        st.html(ui.section_label("LATEST CANDIDATE"))
+        st.html(
+            ui.tile_row(
+                [
+                    ui.tile("VERSION", report["model_version"], "atomic write", small=True),
+                    ui.tile(
+                        "CORRECTED BEFORE",
+                        f"{report['feedback_corrected_before']}/{report['feedback_examples']}",
+                        "baseline model",
+                    ),
+                    ui.tile(
+                        "CORRECTED AFTER",
+                        f"{report['feedback_corrected_after']}/{report['feedback_examples']}",
+                        "candidate model",
+                        color=ui.TOKENS["status-ok"],
+                    ),
+                    ui.tile(
+                        "MACRO F1",
+                        f"{report['updated_macro_f1']:.2%}",
+                        f"{delta:+.2%} vs baseline",
+                        color=(ui.TOKENS["status-ok"] if delta >= 0 else ui.TOKENS["status-warn"]),
+                    ),
+                ]
             )
-            st.metric(
-                "Corrected after",
-                f"{report['feedback_corrected_after']}/{report['feedback_examples']}",
-                border=True,
-            )
-            st.metric(
-                "Macro F1",
-                report["updated_macro_f1"],
-                delta=report["updated_macro_f1"] - report["baseline_macro_f1"],
-                format="percent",
-                border=True,
-            )
+        )
         st.download_button(
             "Download retraining report",
             data=json.dumps(report, indent=2),
