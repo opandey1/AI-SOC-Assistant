@@ -14,7 +14,7 @@ An explainable AI triage pipeline that classifies NSL-KDD network connections in
 
 ## See It Run
 
-![Pipeline demo](docs/demo.svg)
+![Animated AI-SOC-Assistant terminal demo](docs/demo.gif)
 
 ## Why This Is Different
 
@@ -49,6 +49,8 @@ For every flagged connection, SHAP ranks the features that drove the prediction 
 ![SHAP drivers for a flagged DoS connection](docs/evaluation/holdout/shap_drivers.png)
 
 Those drivers become plain-English evidence in the generated ticket:
+
+![Generated SOC incident ticket preview](docs/ticket_preview.png)
 
 ```text
 3. Why Flagged - Evidence
@@ -127,6 +129,12 @@ python -m src.evaluate
 python -m src.evaluate --use-test-set
 ```
 
+Regenerate the README ticket preview and animated terminal demo:
+
+```bash
+python scripts/generate_readme_assets.py
+```
+
 The committed metrics are produced with the supported Python range and the exact direct dependency versions in `requirements.txt`. Record the Python version, dependency inventory, dataset checksums, arguments, and random seed when publishing a comparison. Use `--use-test-set` for the separate `KDDTest+` cross-distribution protocol.
 
 ### Run with Docker
@@ -152,8 +160,8 @@ Pulling an image or model requires network access. After those artifacts are pre
 
 ```bash
 python -m pip install pytest==8.3.4 flake8==7.1.1 black==24.10.0
-python -m black --check src tests
-python -m flake8 src tests
+python -m black --check src tests scripts
+python -m flake8 src tests scripts
 python -m pytest
 ```
 
@@ -168,6 +176,8 @@ src/
   agent.py        LangGraph SOC analyst agent and threat-intel tools
   evaluate.py     metrics, confusion matrix, and SHAP artifact generation
   pipeline.py     runnable command-line pipeline
+scripts/
+  generate_readme_assets.py   terminal GIF and ticket-preview generator
 tests/            pytest unit tests for ingestion, preprocessing, SHAP, tickets
 notebooks/
   AI_Powered_SOC_Assistant.ipynb
@@ -179,7 +189,8 @@ Dockerfile, docker-compose.yml
 ## Demo Artifacts
 
 - [Architecture diagram](docs/soc_architecture.svg)
-- [Animated pipeline demo](docs/demo.svg)
+- [Animated pipeline demo](docs/demo.gif) and [lightweight SVG version](docs/demo.svg)
+- [Generated ticket preview](docs/ticket_preview.png)
 - [Hold-out confusion matrix](docs/evaluation/holdout/confusion_matrix.png) and [per-class metrics](docs/evaluation/holdout/metrics.md)
 - [Hold-out SHAP driver plot](docs/evaluation/holdout/shap_drivers.png) and [SHAP evidence bundle](docs/evaluation/holdout/shap_example_output.json)
 - [Cross-distribution metrics](docs/evaluation/cross_distribution/metrics.md)
