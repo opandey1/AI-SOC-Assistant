@@ -29,3 +29,15 @@ Get-FileHash -Algorithm SHA256 data/KDDTrain+.txt, data/KDDTest+.txt
 ```
 
 If a trusted provider publishes different files or checksums, do not silently replace these reference values. Record the new source, version, checksums, and row counts with the evaluation results so comparisons remain auditable.
+
+## UNSW-NB15 external validation
+
+The optional transfer benchmark uses `UNSW_NB15_testing-set.csv`. UNSW Canberra describes the official partition and its academic-use/citation conditions on the [UNSW-NB15 dataset page](https://research.unsw.edu.au/projects/unsw-nb15-dataset).
+
+The official SharePoint link currently requires an institutional sign-in in some environments. `scripts/download_unsw_nb15.py` therefore downloads a public mirror and accepts it only when this SHA-256 matches:
+
+```text
+UNSW_NB15_testing-set.csv  734fe6642edf758f7c94d7d9149426b49d202fe8e7bf0bef47392489c3c0a559
+```
+
+Run `python scripts/download_unsw_nb15.py`, then `python -m src.validate_unsw`. The CSV remains excluded from Git and the Docker build context.
