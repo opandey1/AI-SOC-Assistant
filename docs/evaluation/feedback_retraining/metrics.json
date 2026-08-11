@@ -1,0 +1,17 @@
+{
+  "baseline_accuracy": 0.7439673527324343,
+  "baseline_macro_f1": 0.5149050224812864,
+  "corrected_class": "normal",
+  "feedback_corrected_after": 1,
+  "feedback_corrected_before": 0,
+  "feedback_examples": 1,
+  "feedback_weight": 25.0,
+  "isolation_forest_updated": false,
+  "mean_corrected_probability_after": 0.5021832346638856,
+  "mean_corrected_probability_before": 0.02833701569910704,
+  "original_prediction": "probe",
+  "random_forest_updated": true,
+  "test_row": 33,
+  "updated_accuracy": 0.7401082327892122,
+  "updated_macro_f1": 0.5142129218222146
+}

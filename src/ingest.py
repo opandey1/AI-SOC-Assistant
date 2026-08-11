@@ -57,6 +57,9 @@ NSL_KDD_COLUMNS = [
 CATEGORICAL_FEATURES = ["protocol_type", "service", "flag"]
 TARGET_COLUMN = "attack_family"
 DROP_COLUMNS = ["label", "difficulty", TARGET_COLUMN]
+MODEL_INPUT_COLUMNS = [
+    column for column in NSL_KDD_COLUMNS if column not in {"label", "difficulty"}
+]
 
 CLASS_NAMES = ["normal", "dos", "probe", "r2l", "u2r", "unknown"]
 LABEL_MAP = {label: index for index, label in enumerate(CLASS_NAMES)}

@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from imblearn.over_sampling import RandomOverSampler
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from src.ingest import CATEGORICAL_FEATURES, DROP_COLUMNS, LABEL_MAP, TARGET_COLUMN, NslKddDataset
+from src.ingest import (
+    CATEGORICAL_FEATURES,
+    DROP_COLUMNS,
+    LABEL_MAP,
+    MODEL_INPUT_COLUMNS,
+    TARGET_COLUMN,
+    NslKddDataset,
+)
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,72 @@ def _apply_random_oversampling(
     x_balanced, y_balanced = sampler.fit_resample(x_train_scaled, y_train)
     balancing_applied = len(x_balanced) > len(x_train_scaled)
     return np.asarray(x_balanced), np.asarray(y_balanced, dtype=int), balancing_applied
+
+
+def transform_connections(
+    raw_rows: pd.DataFrame,
+    preprocessor: Any,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """Transform raw NSL-KDD-shaped records with a fitted preprocessor.
+
+    Extra metadata fields are ignored. All 41 model input fields are required so
+    replayed records, Kafka events, and dashboard submissions follow the exact
+    same feature contract as training data.
+    """
+
+    if raw_rows.empty:
+        raise ValueError("At least one connection record is required.")
+
+    missing = [column for column in MODEL_INPUT_COLUMNS if column not in raw_rows.columns]
+    if missing:
+        raise ValueError(f"Connection record is missing required fields: {', '.join(missing)}")
+
+    frame = raw_rows.loc[:, MODEL_INPUT_COLUMNS].copy().reset_index(drop=True)
+    contains_nested_values = frame.map(
+        lambda value: isinstance(value, (Mapping, list, tuple, set))
+    ).to_numpy()
+    if contains_nested_values.any():
+        raise ValueError("Connection fields must contain scalar values.")
+    numeric_columns = [
+        column for column in MODEL_INPUT_COLUMNS if column not in CATEGORICAL_FEATURES
+    ]
+    try:
+        frame[numeric_columns] = frame[numeric_columns].apply(
+            pd.to_numeric,
+            errors="raise",
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Numeric connection fields must contain valid numbers.") from exc
+    if not np.isfinite(frame[numeric_columns].to_numpy(dtype=float)).all():
+        raise ValueError("Numeric connection fields must all be finite.")
+
+    frame[CATEGORICAL_FEATURES] = frame[CATEGORICAL_FEATURES].astype(str)
+    encoded = preprocessor.encoder.transform(frame[CATEGORICAL_FEATURES])
+    encoded_columns = list(preprocessor.encoder.get_feature_names_out(CATEGORICAL_FEATURES))
+    encoded_frame = pd.DataFrame(encoded, columns=encoded_columns, index=frame.index)
+    processed = pd.concat(
+        [frame.drop(columns=CATEGORICAL_FEATURES), encoded_frame],
+        axis=1,
+    )
+
+    expected_features = list(preprocessor.feature_names)
+    unexpected = [column for column in processed.columns if column not in expected_features]
+    if unexpected:
+        processed = processed.drop(columns=unexpected)
+    processed = processed.reindex(columns=expected_features, fill_value=0.0)
+    scaled = np.asarray(preprocessor.scaler.transform(processed), dtype=float)
+    return processed, scaled
+
+
+def transform_connection(
+    raw_record: Mapping[str, Any] | pd.Series,
+    preprocessor: Any,
+) -> tuple[pd.Series, np.ndarray]:
+    """Transform one raw connection and return its processed and scaled forms."""
+
+    record = raw_record.to_dict() if isinstance(raw_record, pd.Series) else dict(raw_record)
+    processed, scaled = transform_connections(pd.DataFrame([record]), preprocessor)
+    return processed.iloc[0], scaled[0]
 
 
 def preprocess_dataset(

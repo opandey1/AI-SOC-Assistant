@@ -71,6 +71,7 @@ def train_random_forest(
     max_depth: int = 25,
     min_samples_leaf: int = 2,
     random_state: int = 42,
+    sample_weight: np.ndarray | None = None,
 ) -> RandomForestClassifier:
     """Train the supervised multi-class attack-family classifier."""
 
@@ -82,7 +83,11 @@ def train_random_forest(
         random_state=random_state,
         n_jobs=-1,
     )
-    classifier.fit(data.x_train_balanced, data.y_train_balanced)
+    classifier.fit(
+        data.x_train_balanced,
+        data.y_train_balanced,
+        sample_weight=sample_weight,
+    )
     return classifier
 
 

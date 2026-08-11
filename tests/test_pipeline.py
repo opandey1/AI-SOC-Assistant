@@ -8,7 +8,7 @@ import pytest
 
 import src.agent
 import src.explain
-from src.pipeline import build_parser, process_connection
+from src.pipeline import build_parser, process_connection, run_pipeline
 from src.train import IsolationScoreCalibration
 
 
@@ -105,3 +105,51 @@ def test_isolation_only_alert_uses_explicit_canonical_bundle(monkeypatch):
 def test_cli_rejects_invalid_isolation_threshold(value):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--isolation-threshold", value])
+
+
+def test_run_pipeline_passes_source_ip_to_shared_runtime(monkeypatch, tmp_path):
+    import src.explain
+    import src.ingest
+    import src.preprocess
+    import src.runtime
+    import src.train
+
+    dataset = SimpleNamespace(test=pd.DataFrame([{"raw": 1}]))
+    data = SimpleNamespace(
+        feature_names=["feature_0"],
+        balancing_method="none",
+        x_test=pd.DataFrame([{"feature_0": 1.0}]),
+        raw_test=pd.DataFrame([{"raw": 1}]),
+    )
+    models = SimpleNamespace(
+        fused_anomaly=np.array([1]),
+        random_forest=object(),
+    )
+    captured = {}
+
+    monkeypatch.setattr(src.ingest, "load_nsl_kdd", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(src.ingest, "dataset_summary", lambda _dataset: "summary")
+    monkeypatch.setattr(src.preprocess, "preprocess_dataset", lambda *args, **kwargs: data)
+    monkeypatch.setattr(src.train, "train_models", lambda *args, **kwargs: models)
+    monkeypatch.setattr(src.explain, "build_explainer", lambda _model: object())
+
+    def fake_analysis(*args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(ticket="ticket")
+
+    monkeypatch.setattr(src.runtime, "analyze_processed_connection", fake_analysis)
+    args = SimpleNamespace(
+        train=None,
+        test=None,
+        no_smote=False,
+        isolation_threshold=0.7,
+        row_index=0,
+        no_llm=True,
+        provider="ollama",
+        src_ip="192.0.2.99",
+        no_store=True,
+        database=tmp_path / "feedback.db",
+    )
+
+    assert run_pipeline(args) == "ticket"
+    assert captured["source_ip"] == "192.0.2.99"

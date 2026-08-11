@@ -5,11 +5,14 @@
 /data/*.csv
 /models/*.pkl
 /models/*.joblib
+/models/retrain_report.json
+/state/
 
 # Environment variables and API keys
 .env
 .env.*
 !.env.example
+.streamlit/secrets.toml
 
 # Ignore Python Caches
 __pycache__/

@@ -5,8 +5,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.ingest import DatasetPaths, NslKddDataset, add_attack_family
-from src.preprocess import preprocess_dataset
+from src.ingest import (
+    CATEGORICAL_FEATURES,
+    MODEL_INPUT_COLUMNS,
+    DatasetPaths,
+    NslKddDataset,
+    add_attack_family,
+)
+from src.preprocess import preprocess_dataset, transform_connection
 
 
 def _tiny_dataset(train_services, test_services):
@@ -191,3 +197,47 @@ def test_random_oversampling_can_balance_a_single_minority_sample():
 
     assert pd.Series(data.y_train_balanced).value_counts().to_dict() == {0: 3, 1: 3}
     assert data.balancing_method == "random_oversampling"
+
+
+def _complete_raw_row(seed=0):
+    row = {column: seed for column in MODEL_INPUT_COLUMNS}
+    row.update({"protocol_type": "tcp", "service": "http", "flag": "SF"})
+    return row
+
+
+def test_transform_connection_matches_batch_preprocessing_and_rejects_bad_input():
+    train_rows = []
+    for seed, label in enumerate(["normal", "neptune", "nmap", "guess_passwd"]):
+        row = _complete_raw_row(seed)
+        row.update({"label": label, "difficulty": 20})
+        train_rows.append(row)
+    test_row = _complete_raw_row(7)
+    test_row.update({"service": "unseen-service", "label": "normal", "difficulty": 20})
+    dataset = NslKddDataset(
+        train=add_attack_family(pd.DataFrame(train_rows)),
+        test=add_attack_family(pd.DataFrame([test_row])),
+        paths=DatasetPaths(train=Path("train.txt"), test=Path("test.txt")),
+    )
+    data = preprocess_dataset(dataset, use_smote=False)
+
+    transformed, scaled = transform_connection(test_row, data)
+
+    pd.testing.assert_series_equal(transformed, data.x_test.iloc[0], check_names=False)
+    np.testing.assert_allclose(scaled, data.x_test_scaled[0])
+
+    missing = test_row.copy()
+    missing.pop("duration")
+    with np.testing.assert_raises_regex(ValueError, "missing required fields"):
+        transform_connection(missing, data)
+
+    invalid = test_row.copy()
+    invalid["duration"] = np.inf
+    with np.testing.assert_raises_regex(ValueError, "must all be finite"):
+        transform_connection(invalid, data)
+
+    nested = test_row.copy()
+    nested["service"] = ["http"]
+    with np.testing.assert_raises_regex(ValueError, "scalar values"):
+        transform_connection(nested, data)
+
+    assert all(column in test_row for column in CATEGORICAL_FEATURES)
