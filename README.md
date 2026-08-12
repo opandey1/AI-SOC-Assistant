@@ -122,7 +122,11 @@ Launch the Streamlit triage, SHAP, ticket-review, and model-operations console:
 streamlit run streamlit_app.py
 ```
 
+![AI-SOC-Assistant analyst console showing a flagged DoS connection, its SHAP drivers, and the generated incident ticket](docs/console_triage.png)
+
 The console reads the same NSL-KDD files, persists alert tickets to `state/soc_feedback.db`, and automatically offers `models/soc_model.joblib` after feedback retraining.
+
+The interface is built on a small design system in [`src/ui.py`](src/ui.py): a single token set defines the surfaces, the five attack-family colours, and the type ramp, and every rendered value is HTML-escaped because source IPs, event ids, and SHAP feature names reach the DOM. SHAP drivers render as signed contribution bars normalised to the largest-magnitude driver and labelled `SUPPORTS`, `OPPOSES`, or `NEUTRAL`; raw SHAP floats stay in the scoring-details expander and never enter the ticket.
 
 ### Live event ingestion
 
@@ -255,12 +259,15 @@ src/
   retrain.py      analyst-feedback Random Forest update
   runtime.py      shared single-connection analysis runtime
   streaming.py    delayed replay plus Kafka consumer/publisher
+  ui.py           analyst console design system: tokens, CSS, and render helpers
   validate_unsw.py  zero-tuning UNSW-NB15 transfer benchmark
 scripts/
   generate_readme_assets.py   terminal GIF and ticket-preview generator
+  generate_evolution_pdf.py   two-page engineering evolution brief generator
   download_unsw_nb15.py       checksum-verified external dataset downloader
 streamlit_app.py  analyst triage, review queue, and model operations console
-tests/            pytest unit tests for ingestion, preprocessing, SHAP, tickets
+.streamlit/config.toml  dark console theme applied to Streamlit's own widgets
+tests/            pytest unit tests for ingestion, preprocessing, SHAP, tickets, and console rendering
 notebooks/
   AI_Powered_SOC_Assistant.ipynb
 docs/             architecture, sample ticket, and protocol-scoped evaluation artifacts
@@ -273,6 +280,7 @@ Dockerfile, docker-compose.yml
 - [Long-term implementation record and reproducible commands](docs/LONG_TERM_IMPLEMENTATION.md)
 - [Architecture diagram](docs/soc_architecture.svg)
 - [Animated pipeline demo](docs/demo.gif) and [lightweight SVG version](docs/demo.svg)
+- [Analyst console screenshot](docs/console_triage.png)
 - [Generated ticket preview](docs/ticket_preview.png)
 - [Hold-out confusion matrix](docs/evaluation/holdout/confusion_matrix.png) and [per-class metrics](docs/evaluation/holdout/metrics.md)
 - [Hold-out SHAP driver plot](docs/evaluation/holdout/shap_drivers.png) and [SHAP evidence bundle](docs/evaluation/holdout/shap_example_output.json)
