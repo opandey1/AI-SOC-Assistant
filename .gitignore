@@ -29,4 +29,9 @@ env/
 .pytest_cache/
 .mypy_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+
+# Assistant/session scratch directories written next to the project
+outputs/

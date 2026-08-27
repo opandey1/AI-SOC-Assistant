@@ -12,3 +12,4 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 .gitattributes text eol=lf
+* text=auto
