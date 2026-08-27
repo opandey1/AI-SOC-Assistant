@@ -230,7 +230,8 @@ def test_empty_or_malformed_model_response_falls_back_to_safe_template(model_res
         agent_executor=StubAgent(),
         timestamp="2026-08-10T00:00:00+00:00",
     )
-    assert result.startswith("1. Incident Summary")
+    # Section titles are emitted bold, so assert on the title rather than a bare prefix.
+    assert result.startswith("**1. Incident Summary**")
     assert "0.123456789" not in result
 
 

@@ -531,10 +531,10 @@ def render_template_ticket(
             "containment triage."
         )
         classification = (
-            f"Type: {rf_class}\n"
-            f"Random Forest family confidence: {rf_confidence}\n"
-            f"Isolation Forest anomaly risk: {isolation_risk}\n"
-            f"Fused anomaly confidence: {fused_confidence}"
+            f"- Type: {rf_class}\n"
+            f"- Random Forest family confidence: {rf_confidence}\n"
+            f"- Isolation Forest anomaly risk: {isolation_risk}\n"
+            f"- Fused anomaly confidence: {fused_confidence}"
         )
     else:
         summary = (
@@ -542,24 +542,36 @@ def render_template_ticket(
             f"Random Forest classified the activity as {rf_class} with {rf_confidence} family "
             "confidence, requiring analyst validation and containment triage."
         )
-        classification = f"Type: {rf_class}\nRandom Forest family confidence: {rf_confidence}"
+        classification = (
+            f"- Type: {rf_class}\n" f"- Random Forest family confidence: {rf_confidence}"
+        )
 
-    return f"""1. Incident Summary
+    # Section titles are emitted bold and followed by a blank line. A bare "1. Title"
+    # line is an ordered-list item in Markdown, and the following line is absorbed into
+    # it by lazy continuation, so the heading and its body render as one run-on line.
+    # _section_body() tolerates surrounding [ #*] and strips blank lines, so the bodies
+    # the LLM validator compares are unaffected by this formatting.
+    return f"""**1. Incident Summary**
+
 {summary}
 
-2. Attack Classification
+**2. Attack Classification**
+
 {classification}
 
-3. Why flagged - Evidence
+**3. Why flagged - Evidence**
+
 {evidence}
 
-4. Immediate Containment Steps
+**4. Immediate Containment Steps**
+
 1. Validate whether {source_ip} maps to an expected internal asset or approved scanner.
 2. Review recent authentication, connection, and firewall events involving the source and destination pair.
 3. Temporarily restrict the source if the activity is unauthorized or recurring.
 4. Preserve packet, flow, and endpoint evidence before remediation.
 
-5. Investigation Queries
+**5. Investigation Queries**
+
 ```spl
 index=network sourcetype=firewall src_ip="{source_ip}" earliest=-24h
 | stats count, values(action), values(dest_ip), values(dest_port), values(app) by src_ip
@@ -570,7 +582,8 @@ index=network sourcetype=ids src_ip="{source_ip}" earliest=-24h
 | table _time signature severity src_ip dest_ip dest_port
 ```
 
-6. Escalation Recommendation
+**6. Escalation Recommendation**
+
 P2 - Escalate to the SOC lead if the traffic is not attributable to approved scanning, backup, or administrative activity. Raise to P1 if the same source shows confirmed exploitation, lateral movement, or impact on production services."""
 
 
