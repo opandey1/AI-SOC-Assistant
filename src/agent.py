@@ -4,11 +4,30 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import math
 import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def _log_fallback(provider: str, reason: str, detail: str = "-") -> None:
+    """Record that a generated ticket was discarded in favour of the deterministic one.
+
+    Both arguments are drawn from validated or enumerated values, never from raw model
+    output, so this line cannot be used to inject content into the log stream.
+    """
+
+    logger.warning(
+        "llm_ticket_rejected provider=%s reason=%s detail=%s",
+        provider,
+        reason,
+        detail,
+    )
+
 
 # NOTE: ``requests``, ``langchain`` and ``langgraph`` are imported lazily inside the
 # functions that need them. This keeps the deterministic ``template`` / ``--no-llm``
@@ -518,9 +537,9 @@ def render_template_ticket(
             "and crossed its configured threshold. The alert requires analyst validation."
         )
         classification = (
-            "Type: behavioral anomaly (Isolation Forest)\n"
-            f"Anomaly confidence (Isolation Forest risk): {isolation_risk}\n"
-            f"Random Forest context: {rf_class} ({rf_confidence} family confidence)"
+            "- Type: behavioral anomaly (Isolation Forest)\n"
+            f"- Anomaly confidence (Isolation Forest risk): {isolation_risk}\n"
+            f"- Random Forest context: {rf_class} ({rf_confidence} family confidence)"
         )
     elif alert_reason == "both":
         summary = (
@@ -704,27 +723,38 @@ def _valid_spl_fences(ticket: str, source_ip: str) -> bool:
     return all(_valid_spl_query(query, source_ip) for query in queries)
 
 
-def _valid_llm_ticket(
+def _ticket_rejection_reason(
     ticket: Any,
     shap_bundle: dict[str, Any],
     *,
     source_ip: str,
     deterministic_ticket: str,
-) -> bool:
+) -> str | None:
+    """Return None when the generated ticket is acceptable, else a short reason code.
+
+    The reason is emitted as telemetry so that a rise in a particular rejection class -
+    for example unsafe_spl or section_body_mismatch - is visible. Falling back silently
+    hides whether the provider is degraded or is being steered by prompt injection.
+    """
+
     if not isinstance(ticket, str):
-        return False
+        return "not_a_string"
     stripped = ticket.strip()
-    if not stripped or len(stripped) > _MAX_TICKET_LENGTH:
-        return False
+    if not stripped:
+        return "empty"
+    if len(stripped) > _MAX_TICKET_LENGTH:
+        return "oversized"
     section_positions = [stripped.find(section) for section in REQUIRED_SECTIONS]
-    if section_positions[0] not in {0, 2, 3} or any(position < 0 for position in section_positions):
-        return False
+    if any(position < 0 for position in section_positions):
+        return "missing_section"
+    if section_positions[0] not in {0, 2, 3}:
+        return "preamble_before_first_section"
     if section_positions != sorted(section_positions):
-        return False
+        return "sections_out_of_order"
     if any(stripped.count(section) != 1 for section in REQUIRED_SECTIONS):
-        return False
+        return "duplicate_section"
     if not _valid_spl_fences(stripped, source_ip):
-        return False
+        return "unsafe_spl"
 
     deterministic_positions = [deterministic_ticket.find(section) for section in REQUIRED_SECTIONS]
     for section_index in (1, 2):
@@ -735,14 +765,32 @@ def _valid_llm_ticket(
             section_index,
         )
         if actual_body is None or actual_body != expected_body:
-            return False
+            return f"section_{section_index + 1}_body_mismatch"
 
     if re.search(r"\bshap[_ ]?value\b", stripped, re.IGNORECASE):
-        return False
+        return "raw_shap_reference"
     for literal in _raw_shap_literals(shap_bundle):
         if re.search(rf"(?<![\d.]){re.escape(literal)}(?![\d.])", stripped):
-            return False
-    return True
+            return "raw_shap_value_leak"
+    return None
+
+
+def _valid_llm_ticket(
+    ticket: Any,
+    shap_bundle: dict[str, Any],
+    *,
+    source_ip: str,
+    deterministic_ticket: str,
+) -> bool:
+    return (
+        _ticket_rejection_reason(
+            ticket,
+            shap_bundle,
+            source_ip=source_ip,
+            deterministic_ticket=deterministic_ticket,
+        )
+        is None
+    )
 
 
 def generate_incident_ticket(
@@ -785,15 +833,17 @@ def generate_incident_ticket(
         agent = agent_executor or build_agent(active_provider)
         result = agent.invoke({"messages": [("user", message)]})
         ticket = _extract_agent_ticket(result)
-    except Exception:  # Provider/tool failure must not prevent deterministic triage output.
+    except Exception as exc:  # Provider/tool failure must not prevent deterministic triage.
+        _log_fallback(active_provider, "provider_error", type(exc).__name__)
         return fallback
-    return (
-        ticket
-        if _valid_llm_ticket(
-            ticket,
-            shap_bundle,
-            source_ip=source_ip,
-            deterministic_ticket=fallback,
-        )
-        else fallback
+
+    reason = _ticket_rejection_reason(
+        ticket,
+        shap_bundle,
+        source_ip=source_ip,
+        deterministic_ticket=fallback,
     )
+    if reason is None:
+        return ticket
+    _log_fallback(active_provider, reason, _safe_label(shap_bundle.get("predicted_class")))
+    return fallback
