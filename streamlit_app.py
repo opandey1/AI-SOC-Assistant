@@ -193,7 +193,11 @@ with st.sidebar:
     model_mode = st.segmented_control(
         "Model",
         model_options,
-        default=model_options[-1],
+        # Default to the baseline so a freshly written artifact is not adopted on the
+        # next rerun. This is a default, not a promotion gate: retraining while
+        # Retrained is already selected replaces the model in use immediately, which
+        # the Model operations page states and warns about.
+        default=model_options[0],
         width="stretch",
     )
     provider = st.selectbox(
@@ -530,9 +534,20 @@ elif view == "Review queue":
 else:
     st.header("Model operations")
     st.caption(
-        "Promote analyst-reviewed false positives into a weighted retraining run, then "
-        "compare the candidate against every evaluation protocol before adopting it."
+        "Fold analyst-reviewed false positives into a weighted retraining run. "
+        "Retraining overwrites the single local model artifact in place and reports its "
+        "effect on the corrected rows and on KDDTest+ only; it does not evaluate a "
+        "candidate against the other protocols. There is no separate candidate artifact, "
+        "so if the sidebar is already set to Retrained the new model takes effect on the "
+        "next scored connection."
     )
+    if model_mode == "Retrained":
+        st.warning(
+            "The sidebar is set to **Retrained**, so retraining here replaces the model "
+            "currently in use with no further confirmation. Switch to Baseline first if "
+            "you want to inspect the report before adopting the result.",
+            icon=":material/warning:",
+        )
 
     feedback_examples = store.feedback_examples()
     st.html(
@@ -628,7 +643,9 @@ else:
         st.html(
             ui.card(
                 "Evaluation protocols",
-                "Three independent protocols, reported hardest-first.",
+                "Published baseline results, reported hardest-first. These are the "
+                "committed figures for the baseline model, not a re-evaluation of any "
+                "retrained candidate.",
                 "".join(
                     ui.protocol_card(name, dataset, accuracy, macro_f1, colour, blurb)
                     for name, dataset, accuracy, macro_f1, colour, blurb in EVALUATION_PROTOCOLS
