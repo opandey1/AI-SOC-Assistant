@@ -669,6 +669,21 @@ def test_provider_failure_is_logged_before_falling_back(caplog):
         (lambda t: t + "\n\n" + t, "duplicate_section"),
         (lambda t: t.replace("| stats count", "| delete"), "unsafe_spl"),
         (lambda t: t.replace("Type: dos", "Type: normal"), "section_2_body_mismatch"),
+        # Branches the first version of this test left uncovered.
+        (lambda t: "x" * 50_001, "oversized"),
+        (lambda t: "Preamble line\n\n" + t, "preamble_before_first_section"),
+        (
+            lambda t: t.replace(
+                "**3. Why flagged - Evidence**",
+                "**3. Why flagged - Evidence**\nInvented evidence line.",
+            ),
+            "section_3_body_mismatch",
+        ),
+        (lambda t: t.replace("P2 -", "shap_value noted below.\nP2 -"), "raw_shap_reference"),
+        (
+            lambda t: t.replace("P2 -", "Contribution 0.123456789 observed.\nP2 -"),
+            "raw_shap_value_leak",
+        ),
     ],
 )
 def test_rejection_reasons_are_specific(mutate, expected_reason):
@@ -681,4 +696,23 @@ def test_rejection_reasons_are_specific(mutate, expected_reason):
             deterministic_ticket=template,
         )
         == expected_reason
+    )
+
+
+def test_reordered_sections_are_rejected():
+    """Section order carries meaning: evidence must follow the classification it explains."""
+
+    template = render_template_ticket(SAMPLE_BUNDLE, timestamp="2026-08-10T00:00:00+00:00")
+    start = template.index("**2. Attack Classification**")
+    middle = template.index("**3. Why flagged - Evidence**")
+    end = template.index("**4. Immediate Containment Steps**")
+    swapped = template[:start] + template[middle:end] + template[start:middle] + template[end:]
+    assert (
+        _ticket_rejection_reason(
+            swapped,
+            SAMPLE_BUNDLE,
+            source_ip="192.168.1.47",
+            deterministic_ticket=template,
+        )
+        == "sections_out_of_order"
     )
