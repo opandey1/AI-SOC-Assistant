@@ -38,7 +38,7 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "docs" / "SOC_Assistant_Evolution.pdf"
 
 TITLE = "AI-SOC-Assistant Evolution &amp; Wins"
 RUNNING_HEAD = "AI-SOC-Assistant - Engineering Evolution Brief"
-UPDATED = "Updated 12 August 2026"
+UPDATED = "Updated 30 August 2026"
 
 INK = HexColor("#1A1A1A")
 MUTED = HexColor("#5F6672")
@@ -125,8 +125,9 @@ ITEMS_ONE = [
         "same scoring runtime as the CLI. Generated tickets persist to SQLite, analyst "
         "reviews are append-only, and confirmed false positives re-enter training with an "
         "explicit per-row sample weight behind a versioned, atomically written artifact.",
-        "The project demonstrates an operating loop rather than a batch script, and model "
-        "promotion stays deliberate and auditable.",
+        "The project demonstrates an operating loop rather than a batch script. "
+        "Model promotion is not yet gated: retraining overwrites the single local "
+        "artifact in place, and a candidate/acceptance boundary is outstanding work.",
     ),
 ]
 
@@ -180,7 +181,7 @@ ITEMS_TWO = [
 ]
 
 VALIDATION = (
-    "Clean Python 3.10 to 3.12 dependency installs, 118 automated tests, formatting, "
+    "Clean Python 3.10 to 3.12 dependency installs, 150 automated tests, formatting, "
     "lint, dependency consistency, default and no-balancing pipeline runs, and all three "
     "evaluation protocols pass. The analyst console is additionally verified by rendering "
     "it in a headless browser and asserting that no view raises, that Material icons "
