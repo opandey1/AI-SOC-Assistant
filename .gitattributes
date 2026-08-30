@@ -1,3 +1,8 @@
+# The catch-all must come FIRST. Git applies the last matching line per attribute, so a
+# trailing `* text=auto` overrides the binary rules below and subjects PDFs and images to
+# line-ending conversion on checkout, changing their bytes.
+* text=auto
+
 *.pdf binary
 *.png binary
 *.jpg binary
@@ -12,4 +17,3 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 .gitattributes text eol=lf
-* text=auto
