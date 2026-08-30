@@ -237,11 +237,50 @@ Pulling an image or model requires network access. After those artifacts are pre
 ### Tests
 
 ```bash
-python -m pip install pytest==8.3.4 flake8==7.1.1 black==24.10.0
+python -m pip install pytest==8.3.4 flake8==7.1.1 black==24.10.0 \
+  pytest-cov==6.0.0 pip-audit==2.7.3
 python -m black --check streamlit_app.py src tests scripts
 python -m flake8 streamlit_app.py src tests scripts
-python -m pytest
+python -m pytest --cov --cov-report=term-missing --cov-fail-under=70
 ```
+
+The coverage floor is a floor, not a target: raise it as coverage improves rather than
+lowering it to make a run pass.
+
+### Dependency advisories
+
+CI also runs a dependency audit, deliberately **non-blocking**:
+
+```bash
+python -m pip_audit --requirement requirements.txt
+```
+
+It currently reports **17 known advisories across 7 packages**, all in the
+LangChain/LangGraph stack (4 pinned directly, 3 transitive). They are reported rather
+than silently suppressed, and the position is stated plainly rather than implied:
+
+- **Not yet triaged for reachability.** No per-advisory assessment has been done, so
+  this is an open risk, not a cleared one.
+- **Outside the default execution path.** `src/agent.py` imports `langchain`,
+  `langgraph`, and `requests` lazily, inside the functions that use them. The default
+  `template` provider renders tickets deterministically and imports none of the affected
+  packages — verified by asserting `sys.modules` after a template-mode ticket run. The
+  advisories become reachable only when an LLM provider is explicitly selected.
+- **Upgrade scope is unassessed, not blocked.** An earlier version of this section
+  claimed the pinned `create_react_agent(..., state_modifier=...)` signature blocked any
+  upgrade. That was measured and is wrong. On `langgraph` 0.3.15 with
+  `langgraph-prebuilt` 0.1.8, `state_modifier` is no longer in the published signature —
+  it is `prompt` — but passing `state_modifier` still constructs a working graph through
+  a compatibility path, so both pinned tests would continue to pass. A partial upgrade to
+  0.3.15 is therefore feasible and clears one advisory. Clearing the remaining set needs
+  a broader LangChain/LangGraph migration across `langchain-core`, `langsmith` and the
+  checkpoint packages, which has **not** been triaged. The reason this project has not
+  upgraded is unassessed migration scope, not a proven blocker.
+
+The audit is non-blocking because `continue-on-error: true` is set on the CI step.
+`pip-audit` exits non-zero whenever advisories are found regardless of `--strict`;
+`--strict` governs dependency-*collection* failures, not vulnerability reporting. Making
+the step blocking would fail every build until the migration above is done.
 
 ## Repository Structure
 

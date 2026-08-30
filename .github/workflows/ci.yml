@@ -35,10 +35,12 @@ jobs:
       - name: Check dependency consistency
         run: python -m pip check
 
-      # Advisories were previously caught by hand during review. Non-blocking for now:
-      # a new advisory in a transitive dependency should surface, not stop the build.
+      # pip-audit exits non-zero whenever advisories are found; --strict only governs
+      # dependency-collection failures, so omitting it does NOT make this report-only.
+      # continue-on-error is what keeps the step non-blocking. See README.md
+      # "Dependency advisories" for the outstanding set and why it is not yet cleared.
       - name: Audit dependencies for known vulnerabilities
-        run: python -m pip_audit --requirement requirements.txt --strict --progress-spinner off
+        run: python -m pip_audit --requirement requirements.txt --progress-spinner off
         continue-on-error: true
 
       - name: Check formatting (black)
@@ -47,10 +49,12 @@ jobs:
       - name: Lint (flake8)
         run: python -m flake8 streamlit_app.py src tests scripts
 
-      # --cov-fail-under guards the floor. Raise it as coverage improves; never lower it
-      # to make a red build pass.
+      # Bare --cov uses [tool.coverage.run] source in pyproject.toml, which keeps files
+      # that were never executed in the denominator. Naming modules here instead would
+      # let an unimported streamlit_app.py drop out of the report silently.
+      # Raise the floor as coverage improves; never lower it to make a red build pass.
       - name: Run tests (pytest)
-        run: python -m pytest --cov=src --cov=streamlit_app --cov-report=term-missing --cov-fail-under=70
+        run: python -m pytest --cov --cov-report=term-missing --cov-fail-under=70
 
   container-build:
     name: Build non-root container

@@ -6,3 +6,12 @@ target-version = ["py310"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+
+# source (not --cov=<module>) so files that were never executed stay in the denominator.
+# With --cov=streamlit_app, an app that no test imports is silently dropped from the
+# report and the floor is computed over a smaller base, so the build passes while the
+# application is entirely unmeasured. Verified: removing tests/test_streamlit_app.py
+# takes the total from 72.31% to 64.86% and exits 1.
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", "scripts/*", "notebooks/*", ".venv/*", "outputs/*", "docs/*"]
