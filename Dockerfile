@@ -17,6 +17,7 @@ RUN python -m pip install --upgrade pip \
 COPY --chown=app:app src ./src
 COPY --chown=app:app streamlit_app.py ./streamlit_app.py
 COPY --chown=app:app .streamlit ./.streamlit
+COPY --chown=app:app static ./static
 COPY --chown=app:app data/README.md ./data/README.md
 RUN mkdir -p /app/state /app/models \
     && chown -R app:app /app/state /app/models

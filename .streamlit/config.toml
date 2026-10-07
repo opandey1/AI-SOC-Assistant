@@ -1,3 +1,6 @@
+[server]
+enableStaticServing = true
+
 [theme]
 base = "dark"
 primaryColor = "#7C6CF6"
@@ -28,6 +31,16 @@ buttonRadius = "8px"
 showWidgetBorder = true
 showSidebarBorder = true
 linkUnderline = false
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "app/static/fonts/InterVariable.woff2"
+weight = "100 900"
+
+[[theme.fontFaces]]
+family = "JetBrains Mono"
+url = "app/static/fonts/JetBrainsMono-Variable.ttf"
+weight = "100 800"
 
 [theme.sidebar]
 backgroundColor = "#10141C"
