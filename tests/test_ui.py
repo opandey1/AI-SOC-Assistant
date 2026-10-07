@@ -49,6 +49,7 @@ def test_rendered_helpers_escape_untrusted_text(payload):
             ui.tile(payload, payload, payload),
             ui.callout(payload, payload, ui.TOKENS["status-ok"]),
             ui.kv_block([(payload, payload, None)]),
+            ui.cohort_table([(1, payload, payload, payload)]),
             ui.section_label(payload),
             ui.empty_state(ui.ICON_SCAN, payload, payload),
             ui.card(payload, payload, ""),
@@ -105,6 +106,21 @@ def test_evidence_rows_marks_direction_and_handles_empty():
 def test_family_color_falls_back_for_unknown_class():
     assert ui.family_color("dos") == ui.FAMILY_COLORS["dos"]
     assert ui.family_color("NOT_A_CLASS") == ui.FAMILY_COLORS["unknown"]
+
+
+def test_cohort_table_keeps_predicted_and_corrected_classes_distinct():
+    rendered = ui.cohort_table([(7, "event-7", "probe", "normal")])
+    assert '<th scope="col">PREDICTED</th>' in rendered
+    assert '<th scope="col">CORRECTED</th>' in rendered
+    assert "#7" in rendered and "event-7" in rendered
+    assert f'color:{ui.FAMILY_COLORS["probe"]}">probe' in rendered
+    assert f'color:{ui.FAMILY_COLORS["normal"]}">normal' in rendered
+
+
+def test_body_only_callout_does_not_leave_an_empty_heading():
+    rendered = ui.callout("", "Retraining can reduce accuracy.", ui.TOKENS["status-warn"])
+    assert 'class="title"' not in rendered
+    assert "Retraining can reduce accuracy." in rendered
 
 
 def test_css_defines_every_token_and_protects_the_icon_font():

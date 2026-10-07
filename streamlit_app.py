@@ -14,7 +14,7 @@ import streamlit as st
 from src import ui
 from src.feedback import CORRECTABLE_CLASSES, REVIEW_DISPOSITIONS, FeedbackStore
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resolve_dataset_paths
-from src.model_store import load_model_artifact, runtime_from_artifact
+from src.model_store import MODEL_ARTIFACT_FORMAT, load_model_artifact, runtime_from_artifact
 from src.retrain import retrain_from_feedback, save_report
 from src.runtime import (
     ConnectionAnalysis,
@@ -532,97 +532,146 @@ elif view == "Review queue":
                     st.json(selected.evidence)
 
 else:
-    st.header("Model operations")
-    st.caption(
-        "Fold analyst-reviewed false positives into a weighted retraining run. "
-        "Retraining overwrites the single local model artifact in place and reports its "
-        "effect on the corrected rows and on KDDTest+ only; it does not evaluate a "
-        "candidate against the other protocols. There is no separate candidate artifact, "
-        "so if the sidebar is already set to Retrained the new model takes effect on the "
-        "next scored connection."
-    )
-    if model_mode == "Retrained":
-        st.warning(
-            "The sidebar is set to **Retrained**, so retraining here replaces the model "
-            "currently in use with no further confirmation. Switch to Baseline first if "
-            "you want to inspect the report before adopting the result.",
-            icon=":material/warning:",
+    with st.container(key="model_operations", gap=18):
+        st.header("Model operations")
+        st.caption(
+            "Fold analyst-reviewed false positives into a weighted retraining run. "
+            "Retraining overwrites the single local model artifact in place and reports its "
+            "effect on the corrected rows and on KDDTest+ only; it does not evaluate a "
+            "candidate against the other protocols. There is no separate candidate artifact, "
+            "so if the sidebar is already set to Retrained the new model takes effect on the "
+            "next scored connection."
         )
+        if model_mode == "Retrained":
+            st.warning(
+                "The sidebar is set to **Retrained**, so retraining here replaces the model "
+                "currently in use with no further confirmation. Switch to Baseline first if "
+                "you want to inspect the report before adopting the result.",
+                icon=":material/warning:",
+            )
 
-    feedback_examples = store.feedback_examples()
-    st.html(
-        ui.tile_row(
-            [
-                ui.tile("ACTIVE MODEL", model_mode, "loaded from artifact", small=True),
-                ui.tile(
-                    "FEEDBACK EXAMPLES",
-                    str(len(feedback_examples)),
-                    "false positives corrected",
-                    color=ui.TOKENS["status-info"],
-                ),
-                ui.tile(
-                    "ARTIFACT",
-                    "Available" if DEFAULT_MODEL.exists() else "Not trained",
-                    DEFAULT_MODEL.name,
-                    color=(
-                        ui.TOKENS["status-ok"]
-                        if DEFAULT_MODEL.exists()
-                        else ui.TOKENS["text-tertiary"]
-                    ),
-                    small=True,
-                ),
-                ui.tile(
-                    "REVIEWED",
-                    f"{queue_summary['reviewed']:,}",
-                    "of {:,} tickets".format(queue_summary["total"]),
-                ),
-            ]
-        )
-    )
-
-    retrain_col, eval_col = st.columns([1, 1], gap="medium")
-
-    with retrain_col:
-        if feedback_examples:
-            cohort_body = ui.section_label("REVIEWED COHORT") + ui.kv_block(
+        feedback_examples = store.feedback_examples()
+        st.html(
+            ui.tile_row(
                 [
-                    (
-                        f"#{example.ticket_id} · {example.event_id}",
-                        example.corrected_class,
-                        ui.family_color(example.corrected_class),
-                    )
-                    for example in feedback_examples[:6]
+                    ui.tile(
+                        "ACTIVE MODEL",
+                        "retrained" if active_model_path else "baseline-nsl-kdd",
+                        "loaded from artifact" if active_model_path else "trained from NSL-KDD",
+                        small=True,
+                    ),
+                    ui.tile(
+                        "FEEDBACK EXAMPLES",
+                        str(len(feedback_examples)),
+                        "false positives corrected",
+                        color=ui.TOKENS["status-info"],
+                    ),
+                    ui.tile(
+                        "ARTIFACT",
+                        "Available" if DEFAULT_MODEL.exists() else "Not trained",
+                        "models/" + DEFAULT_MODEL.name,
+                        color=(
+                            ui.TOKENS["status-ok"]
+                            if DEFAULT_MODEL.exists()
+                            else ui.TOKENS["text-tertiary"]
+                        ),
+                        small=True,
+                    ),
+                    ui.tile("FORMAT VERSION", str(MODEL_ARTIFACT_FORMAT), "artifact writer schema"),
                 ]
             )
-        else:
-            cohort_body = ui.callout(
-                "No reviewed cohort yet",
-                "Mark at least one ticket as a false positive with a corrected class "
-                "in the review queue to enable retraining.",
-                ui.TOKENS["text-tertiary"],
-            )
-        cohort_body += '<div style="height:12px"></div>' + ui.callout(
-            "Promotion is not automatic",
-            "A single correction changes the intended row but can reduce aggregate "
-            "cross-distribution accuracy. Production promotion needs a larger cohort "
-            "and a held-out acceptance gate.",
-            ui.TOKENS["status-warn"],
-        )
-        st.html(
-            ui.card(
-                "Feedback retraining",
-                "Corrected rows are appended to the training set with an elevated sample weight.",
-                cohort_body,
-            )
         )
 
-        retrain_clicked = st.button(
-            "Retrain Random Forest",
-            type="primary",
-            icon=":material/model_training:",
-            disabled=not feedback_examples,
-            width="stretch",
-        )
+        with st.container(key="model_split", gap=18):
+            retrain_col, eval_col = st.columns([520, 850], gap="small")
+
+            with (
+                retrain_col,
+                st.container(key="feedback_retraining", border=True, height="stretch", gap=14),
+            ):
+                st.html(
+                    ui.panel_header(
+                        "Feedback retraining",
+                        "Corrected rows are appended to the training set with an elevated "
+                        "sample weight.",
+                    )
+                )
+                if feedback_examples:
+                    cohort = store.list_tickets(review_state="false_positive", limit=6)
+                    st.html(
+                        ui.section_label("REVIEWED COHORT")
+                        + ui.cohort_table(
+                            [
+                                (
+                                    ticket.id,
+                                    ticket.event_id,
+                                    ticket.predicted_class,
+                                    ticket.corrected_class,
+                                )
+                                for ticket in cohort
+                                if ticket.corrected_class is not None
+                            ]
+                        )
+                    )
+                else:
+                    st.html(
+                        ui.callout(
+                            "No reviewed cohort yet",
+                            "Mark at least one ticket as a false positive with a corrected class "
+                            "in the review queue to enable retraining.",
+                            ui.TOKENS["text-tertiary"],
+                        )
+                    )
+                feedback_weight = st.slider(
+                    "Feedback sample weight",
+                    min_value=1.0,
+                    max_value=60.0,
+                    value=25.0,
+                    step=0.5,
+                    format="%.1f",
+                    key="feedback_weight",
+                    disabled=not feedback_examples,
+                )
+                st.html(
+                    ui.callout(
+                        "",
+                        "A single correction changes the intended row but can reduce aggregate "
+                        "cross-distribution accuracy. Production promotion needs a larger cohort "
+                        "and a held-out acceptance gate.",
+                        ui.TOKENS["status-warn"],
+                    )
+                )
+                with st.container(
+                    key="retrain_action", height="stretch", vertical_alignment="bottom"
+                ):
+                    retrain_clicked = st.button(
+                        "Retrain Random Forest",
+                        type="primary",
+                        icon=":material/model_training:",
+                        disabled=not feedback_examples,
+                        width="stretch",
+                        key="retrain_model",
+                    )
+
+            with (
+                eval_col,
+                st.container(key="evaluation_protocols", border=True, height="stretch", gap=14),
+            ):
+                st.html(
+                    ui.panel_header(
+                        "Evaluation protocols",
+                        "Published baseline results, reported hardest-first. These are the "
+                        "committed figures for the baseline model, not a re-evaluation of any "
+                        "retrained candidate.",
+                    )
+                )
+                st.html(
+                    "".join(
+                        ui.protocol_card(name, dataset, accuracy, macro_f1, colour, blurb)
+                        for name, dataset, accuracy, macro_f1, colour, blurb in EVALUATION_PROTOCOLS
+                    )
+                )
+
         if retrain_clicked:
             with st.status("Applying analyst feedback", expanded=True) as status:
                 status.write(f"Loading {len(feedback_examples)} reviewed false-positive event(s)")
@@ -631,6 +680,7 @@ else:
                     output_model=DEFAULT_MODEL,
                     train_path=dataset_paths.train,
                     test_path=dataset_paths.test,
+                    feedback_weight=feedback_weight,
                 )
                 status.write("Saving versioned model artifact")
                 save_report(report, DEFAULT_RETRAIN_REPORT)
@@ -638,20 +688,6 @@ else:
                 get_runtime.clear()
                 status.update(label="Random Forest updated", state="complete", expanded=False)
             st.toast("Retrained model is ready", icon=":material/check_circle:")
-
-    with eval_col:
-        st.html(
-            ui.card(
-                "Evaluation protocols",
-                "Published baseline results, reported hardest-first. These are the "
-                "committed figures for the baseline model, not a re-evaluation of any "
-                "retrained candidate.",
-                "".join(
-                    ui.protocol_card(name, dataset, accuracy, macro_f1, colour, blurb)
-                    for name, dataset, accuracy, macro_f1, colour, blurb in EVALUATION_PROTOCOLS
-                ),
-            )
-        )
 
     if st.session_state.last_retrain_report is None and DEFAULT_RETRAIN_REPORT.exists():
         st.session_state.last_retrain_report = json.loads(

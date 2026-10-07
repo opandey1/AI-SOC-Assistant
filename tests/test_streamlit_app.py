@@ -24,12 +24,16 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 from streamlit.testing.v1 import AppTest
 
 from src.ingest import NSL_KDD_COLUMNS
+from src.feedback import FeedbackExample, FeedbackStore
+from src.retrain import RetrainingReport
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP = str(PROJECT_ROOT / "streamlit_app.py")  # absolute: the fixtures chdir away
@@ -180,6 +184,91 @@ def test_baseline_is_default_when_a_retrained_artifact_exists(
     control = app.sidebar.segmented_control[0]
     assert "Retrained" in control.options, "fixture did not produce a second model option"
     assert control.value == "Baseline"
+
+
+@pytest.fixture
+def isolated_review_store(monkeypatch):
+    """Keep Model operations interaction tests away from the user's SQLite state."""
+
+    store = Mock(spec=FeedbackStore)
+    store.summary.return_value = dict(total=0, reviewed=0, unreviewed=0, false_positives=0)
+    store.feedback_examples.return_value = []
+    store.list_tickets.return_value = []
+    monkeypatch.setattr("src.feedback.FeedbackStore", lambda _path: store)
+    return store
+
+
+def test_model_controls_are_disabled_without_a_reviewed_cohort(
+    app_workspace, isolated_review_store
+):
+    app = _run()
+    app.segmented_control[0].set_value("Model").run()
+    _assert_clean(app, "empty Model operations")
+    assert app.slider(key="feedback_weight").value == 25.0
+    assert app.slider(key="feedback_weight").disabled
+    assert app.button(key="retrain_model").disabled
+    html = " ".join(element.proto.body for element in app.get("html"))
+    assert "No reviewed cohort yet" in html
+    assert "not a re-evaluation of any retrained candidate" in html
+    assert html.index("Cross-dataset transfer") < html.index("Cross-distribution")
+    assert html.index("Cross-distribution") < html.index("Stratified hold-out")
+
+
+def test_feedback_slider_value_is_passed_to_retraining(
+    app_workspace, isolated_review_store, monkeypatch
+):
+    store = isolated_review_store
+    store.feedback_examples.return_value = [FeedbackExample(7, "event-7", {}, "normal")]
+    store.list_tickets.return_value = [
+        SimpleNamespace(id=7, event_id="event-7", predicted_class="probe", corrected_class="normal")
+    ]
+    report = RetrainingReport(
+        model_version="test-retrain",
+        trained_at="2026-10-07T00:00:00Z",
+        feedback_examples=1,
+        feedback_weight=12.5,
+        feedback_predictions_changed=1,
+        feedback_corrected_before=0,
+        feedback_corrected_after=1,
+        mean_corrected_probability_before=0.1,
+        mean_corrected_probability_after=0.9,
+        evaluation_rows=3,
+        baseline_accuracy=0.7,
+        updated_accuracy=0.6,
+        baseline_macro_f1=0.5,
+        updated_macro_f1=0.4,
+        output_model="test-only.joblib",
+    )
+    retrain = Mock(return_value=report)
+    save = Mock()
+    monkeypatch.setattr("src.retrain.retrain_from_feedback", retrain)
+    monkeypatch.setattr("src.retrain.save_report", save)
+    app = _run()
+    app.segmented_control[0].set_value("Model").run()
+    _assert_clean(app, "reviewed Model operations")
+    assert not app.slider(key="feedback_weight").disabled
+    html = " ".join(element.proto.body for element in app.get("html"))
+    assert "#7" in html and "event-7" in html
+    store.list_tickets.assert_called_once_with(review_state="false_positive", limit=6)
+    app.slider(key="feedback_weight").set_value(12.5).run()
+    assert not retrain.called, "adjusting the slider must not start a retraining run"
+    app.button(key="retrain_model").click().run()
+    _assert_clean(app, "mocked retraining")
+    retrain.assert_called_once()
+    assert retrain.call_args.kwargs["feedback_weight"] == 12.5
+    save.assert_called_once()
+    assert save.call_args.args[0] == report
+    assert app.session_state.last_retrain_report["feedback_weight"] == 12.5
+
+
+def test_retrained_model_warning_remains_visible(
+    app_workspace, isolated_review_store, retrained_artifact_present
+):
+    app = _run()
+    app.sidebar.segmented_control[0].set_value("Retrained").run()
+    app.segmented_control[0].set_value("Model").run()
+    _assert_clean(app, "active Retrained Model operations")
+    assert any("replaces the model currently in use" in warning.value for warning in app.warning)
 
 
 # Note on coverage. ``AppTest`` execs the script rather than importing it as a module, so

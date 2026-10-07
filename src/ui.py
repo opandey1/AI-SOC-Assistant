@@ -165,6 +165,7 @@ code, pre, kbd, samp {{ font-family: var(--soc-mono) !important; }}
 .soc-tile-value {{
     font-family: var(--soc-mono); font-size: 23px; font-weight: 500;
     letter-spacing: -.3px; line-height: 1.28; color: var(--soc-text-primary);
+    overflow-wrap: anywhere;
 }}
 .soc-tile-value.small {{ font-size: 14px; line-height: 1.7; }}
 .soc-tile-note {{ font-size: 11px; color: var(--soc-text-secondary); }}
@@ -247,17 +248,96 @@ code, pre, kbd, samp {{ font-family: var(--soc-mono) !important; }}
 /* ---------------- Protocol cards ---------------- */
 .soc-proto {{
     background: var(--soc-bg-elevated); border: 1px solid var(--soc-border-subtle);
-    border-radius: 10px; padding: 12px 14px 13px 14px; margin-bottom: 10px;
+    border-radius: 10px; padding: 12px 16px; min-height: 140px;
+    box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;
 }}
-.soc-proto-top {{ display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }}
-.soc-proto-name {{ font-size: 13px; font-weight: 600; color: var(--soc-text-primary); }}
-.soc-proto-set {{ font-family: var(--soc-mono); font-size: 11px; color: var(--soc-text-tertiary); }}
+.soc-proto + .soc-proto {{ margin-top: 14px; }}
+.soc-proto-top {{
+    display: flex; flex-wrap: wrap; justify-content: space-between;
+    align-items: flex-start; gap: 8px 12px; min-height: 48px;
+}}
+.soc-proto-identity {{ flex: 1 1 230px; min-width: 0; }}
+.soc-proto-name {{
+    font-size: 14px; line-height: 20px; font-weight: 600; color: var(--soc-text-primary);
+}}
+.soc-proto-set {{
+    font-family: var(--soc-mono); font-size: 13px; line-height: 20px;
+    color: var(--soc-text-tertiary); overflow-wrap: anywhere;
+}}
 .soc-proto-acc {{
-    margin-left: auto; text-align: right; font-family: var(--soc-mono);
-    font-size: 18px; font-weight: 500; letter-spacing: -.3px;
+    margin-left: auto; flex: 0 0 160px; text-align: right; font-family: var(--soc-mono);
+    font-size: 20px; line-height: 28px; font-weight: 500; letter-spacing: 0;
 }}
-.soc-proto-f1 {{ font-family: var(--soc-mono); font-size: 10px; color: var(--soc-text-tertiary); }}
-.soc-proto-blurb {{ font-size: 11px; color: var(--soc-text-secondary); margin-top: 8px; }}
+.soc-proto-f1 {{
+    font-family: var(--soc-mono); font-size: 13px; line-height: 20px;
+    font-weight: 400; color: var(--soc-text-tertiary);
+}}
+.soc-proto-blurb {{
+    font-size: 13px; line-height: 20px; color: var(--soc-text-secondary);
+    overflow-wrap: anywhere;
+}}
+.soc-proto .soc-track, .soc-proto .soc-track > span {{ border-radius: 3.5px; }}
+
+/* Native containers retain widget behaviour; keys scope the Figma panel layout. */
+.block-container:has(.st-key-model_operations) {{ padding-left: 26px; padding-right: 26px; }}
+.st-key-model_operations {{ letter-spacing: 0; }}
+.st-key-model_operations h2 {{ font-size: 22px; line-height: 28px; padding: 0; }}
+.st-key-model_operations [data-testid="stCaptionContainer"] {{
+    font-size: 13px; line-height: 20px; color: var(--soc-text-secondary);
+}}
+.st-key-model_operations .soc-tile-row {{ gap: 12px; }}
+.st-key-model_operations .soc-tile {{ min-height: 94px; box-sizing: border-box; }}
+.st-key-model_operations .soc-tile-label,
+.st-key-model_operations .soc-tile-value {{ letter-spacing: 0; }}
+.st-key-model_split [data-testid="stHorizontalBlock"] {{ gap: 18px; }}
+.st-key-feedback_retraining, .st-key-evaluation_protocols {{
+    background: var(--soc-bg-surface); border: 1px solid var(--soc-border-subtle);
+    border-radius: 12px; padding: 16px 18px 18px; min-height: 713px;
+}}
+.st-key-model_operations .soc-panel-header {{ margin: 0; }}
+.st-key-model_operations .soc-card-title {{
+    font-size: 15px; line-height: 21px; letter-spacing: 0;
+}}
+.st-key-model_operations .soc-card-sub {{
+    font-size: 13px; line-height: 20px; color: var(--soc-text-secondary);
+}}
+.st-key-feedback_retraining .soc-callout {{ margin: 0; }}
+.st-key-feedback_retraining .soc-callout .body {{ font-size: 12px; line-height: 18px; }}
+.st-key-feedback_retraining [data-testid="stSlider"] label p {{
+    font-size: 12px; color: var(--soc-text-secondary);
+}}
+.soc-cohort {{
+    width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0;
+    border: 1px solid var(--soc-border-subtle); border-radius: 8px;
+    overflow: hidden; font-family: var(--soc-mono); font-size: 11px; line-height: 18px;
+}}
+.soc-cohort th {{
+    background: var(--soc-bg-elevated); color: var(--soc-text-tertiary);
+    font-family: var(--soc-font); font-size: 10px; font-weight: 500; text-align: left;
+}}
+.soc-cohort th, .soc-cohort td {{ padding: 8px 10px; overflow-wrap: anywhere; }}
+.soc-cohort th:first-child {{ width: 40px; }}
+.soc-cohort th:nth-child(2) {{ width: 35%; }}
+.soc-cohort td {{ background: var(--soc-bg-inset); color: var(--soc-text-secondary); }}
+.soc-cohort tr + tr td {{ border-top: 1px solid var(--soc-border-subtle); }}
+@media (max-width: 1100px) {{
+    .st-key-model_split [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+    .st-key-model_split [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
+        width: 100%; flex: 1 1 100%;
+    }}
+    .st-key-feedback_retraining, .st-key-evaluation_protocols {{ min-height: 0; }}
+}}
+@media (max-width: 480px) {{
+    .block-container:has(.st-key-model_operations) .soc-topbar {{ flex-wrap: wrap; gap: 8px; }}
+    .block-container:has(.st-key-model_operations) .soc-brand {{ width: 100%; }}
+    .block-container:has(.st-key-model_operations) .soc-brand-name {{ white-space: nowrap; }}
+    .block-container:has(.st-key-model_operations) .soc-topbar-spacer {{ display: none; }}
+    .block-container:has(.st-key-model_operations) .soc-runtime {{ width: 100%; flex-wrap: wrap; }}
+    .st-key-feedback_retraining, .st-key-evaluation_protocols {{ padding: 14px; }}
+    .soc-proto-identity {{ flex-basis: 100%; }}
+    .soc-proto-acc {{ flex-basis: 100%; text-align: left; margin-left: 0; }}
+    .soc-cohort th, .soc-cohort td {{ padding: 6px; }}
+}}
 
 /* ---------------- Empty state ---------------- */
 .soc-empty {{
@@ -389,11 +469,14 @@ def tile_row(tiles: Iterable[str]) -> str:
 
 
 def callout(title: str, body: str, color: str) -> str:
+    heading = (
+        f'<div class="title" style="color:{color}">{escape(str(title))}</div>' if title else ""
+    )
     return (
         f'<div class="soc-callout" style="background:{_tint(color, 0.10)};'
         f'border:1px solid {_tint(color, 0.30)}">'
         f'<div class="rule" style="background:{color}"></div><div>'
-        f'<div class="title" style="color:{color}">{escape(str(title))}</div>'
+        f"{heading}"
         f'<div class="body">{escape(str(body))}</div></div></div>'
     )
 
@@ -406,6 +489,23 @@ def kv_block(rows: Sequence[tuple[str, str, str | None]]) -> str:
         for key, value, tone in rows
     )
     return f'<div class="soc-kv">{body}</div>'
+
+
+def cohort_table(rows: Sequence[tuple[int, str, str, str]]) -> str:
+    """Compact, read-only view of the latest reviewed false-positive tickets."""
+
+    body = "".join(
+        f"<tr><td>{escape('#' + str(ticket_id))}</td><td>{escape(str(event_id))}</td>"
+        f'<td style="color:{family_color(predicted)}">{escape(str(predicted))}</td>'
+        f'<td style="color:{family_color(corrected)}">{escape(str(corrected))}</td></tr>'
+        for ticket_id, event_id, predicted, corrected in rows
+    )
+    return (
+        '<table class="soc-cohort" aria-label="Reviewed false-positive cohort">'
+        '<thead><tr><th scope="col">ID</th><th scope="col">EVENT</th>'
+        '<th scope="col">PREDICTED</th><th scope="col">CORRECTED</th></tr></thead>'
+        f"<tbody>{body}</tbody></table>"
+    )
 
 
 def verdict_card(
@@ -509,7 +609,7 @@ def protocol_card(
     name: str, dataset: str, accuracy: float, macro_f1: float, color: str, blurb: str
 ) -> str:
     return (
-        '<div class="soc-proto"><div class="soc-proto-top"><div>'
+        '<div class="soc-proto"><div class="soc-proto-top"><div class="soc-proto-identity">'
         f'<div class="soc-proto-name">{escape(str(name))}</div>'
         f'<div class="soc-proto-set">{escape(str(dataset))}</div></div>'
         f'<div class="soc-proto-acc" style="color:{color}">{accuracy:.2%}'
