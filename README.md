@@ -332,6 +332,10 @@ Dockerfile, docker-compose.yml
 
 ## Roadmap / Future Work
 
+The [current status and verification record](docs/project_status.md) distinguishes
+completed work from partial progress and remaining gaps, including the next UI and
+model-governance tasks.
+
 The [Unified SOC project roadmap](docs/unified_soc_roadmap.md) treats this repository as the explainable ML pre-triage layer for a larger **MCP + Agentic-SOC** system. The implemented Kafka event contract, SHAP evidence bundle, SQLite verdict history, and versioned model artifact are the integration boundary for:
 
 1. SIEM/Zeek schema adapters feeding live normalized connection events.

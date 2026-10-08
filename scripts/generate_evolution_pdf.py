@@ -38,7 +38,7 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "docs" / "SOC_Assistant_Evolution.pdf"
 
 TITLE = "AI-SOC-Assistant Evolution &amp; Wins"
 RUNNING_HEAD = "AI-SOC-Assistant - Engineering Evolution Brief"
-UPDATED = "Updated 30 August 2026"
+UPDATED = "Updated 9 October 2026"
 
 INK = HexColor("#1A1A1A")
 MUTED = HexColor("#5F6672")
@@ -122,7 +122,7 @@ ITEMS_ONE = [
     (
         "5. Live Ingestion and a Closed Feedback Loop",
         "Delayed NSL-KDD replay and a Kafka-compatible consumer and publisher feed the "
-        "same scoring runtime as the CLI. Generated tickets persist to SQLite, analyst "
+        "same scoring runtime as the CLI. Generated alert tickets persist to SQLite, analyst "
         "reviews are append-only, and confirmed false positives re-enter training with an "
         "explicit per-row sample weight behind a versioned, atomically written artifact.",
         "The project demonstrates an operating loop rather than a batch script. "
@@ -173,20 +173,24 @@ ITEMS_TWO = [
         "The Streamlit console is built on a single design-system module that defines the "
         "colour tokens, type ramp, and render helpers. SHAP drivers appear as signed "
         "contribution bars labelled as supporting or opposing the predicted class, while "
-        "raw SHAP floats stay out of the ticket. Every rendered value is HTML-escaped "
-        "because source IPs, event ids, and feature names reach the DOM.",
-        "The explanation chain is legible to an analyst in one screen, and the interface "
-        "inherits the same evidence-handling discipline as the pipeline.",
+        "raw SHAP floats stay out of the ticket. Rendering helpers HTML-escape untrusted "
+        "values. Model Operations now follows the refined Figma layout, with baseline "
+        "protocol cards, a reviewed-cohort table, a wired feedback-weight slider, and "
+        "locally served, licensed fonts.",
+        "Model Operations was browser-checked at 1440, 1024, 390, and 320 px. Review "
+        "queue controls and the remaining Figma states still need alignment; this is "
+        "not a whole-app responsive certification.",
     ),
 ]
 
 VALIDATION = (
-    "Clean Python 3.10 to 3.12 dependency installs, 150 automated tests, formatting, "
-    "lint, dependency consistency, default and no-balancing pipeline runs, and all three "
-    "evaluation protocols pass. The analyst console is additionally verified by rendering "
-    "it in a headless browser and asserting that no view raises, that Material icons "
-    "resolve to glyphs, and that no element overflows, clips, or overlaps. Container "
-    "build and non-root checks are enforced in CI across Python 3.10-3.12."
+    "On 9 October 2026, 155 automated tests passed locally with 73.63% coverage "
+    "against a 70% CI floor; Black and flake8 passed. Local Python is 3.13.14 with "
+    "pytest 8.3.4, outside the supported CI matrix. The owner confirmed passing "
+    "Python 3.10-3.12 GitHub Actions jobs and the Docker build; CI also checks the "
+    "image's non-root user. Container runtime testing and image scanning remain open. "
+    "Dependency auditing is report-only, with remediation still outstanding. Real "
+    "model-quality evaluation is not a CI gate, and retraining coverage remains 37%."
 )
 
 POSITIONING = (
