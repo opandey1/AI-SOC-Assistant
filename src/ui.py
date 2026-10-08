@@ -62,6 +62,17 @@ def _token_block() -> str:
     return "\n".join(lines)
 
 
+# Native pills expose sibling buttons in CORRECTABLE_CLASSES order (tested below).
+_REVIEW_FAMILY_STYLES = "\n".join(
+    f".st-key-review_corrected_class button:nth-child({index}) "
+    f"{{ --soc-family-color: {color}; }}"
+    for index, (family, color) in enumerate(
+        ((family, color) for family, color in FAMILY_COLORS.items() if family != "unknown"),
+        start=1,
+    )
+)
+
+
 CSS = f"""
 <style>
 :root {{
@@ -320,19 +331,82 @@ code, pre, kbd, samp {{ font-family: var(--soc-mono) !important; }}
 .soc-cohort th:nth-child(2) {{ width: 35%; }}
 .soc-cohort td {{ background: var(--soc-bg-inset); color: var(--soc-text-secondary); }}
 .soc-cohort tr + tr td {{ border-top: 1px solid var(--soc-border-subtle); }}
+
+/* Review controls keep native input semantics and ticket-scoped widget state. */
+.st-key-review_workspace {{ letter-spacing: 0; }}
+.st-key-review_workspace h2 {{ font-size: 22px; line-height: 28px; padding: 0; }}
+.st-key-review_workspace .soc-card-title,
+.st-key-review_workspace .soc-tile-value,
+.st-key-review_workspace .soc-tile-label {{ letter-spacing: 0; }}
+.st-key-review_workspace .soc-card,
+.st-key-review_workspace .soc-empty,
+.st-key-review_workspace .soc-tile {{ border-radius: 8px; }}
+.st-key-review_workspace .soc-kv-row {{ flex-wrap: wrap; }}
+.st-key-review_workspace .soc-kv-v {{ min-width: 0; overflow-wrap: anywhere; }}
+.st-key-review_detail .soc-kv {{ background: transparent; border: 0; padding: 0; }}
+.st-key-review_workspace .soc-empty {{ min-height: 200px; box-sizing: border-box; }}
+.st-key-review_disposition [role="radiogroup"] {{ gap: 8px; width: 100%; }}
+.st-key-review_disposition label[data-testid="stRadioOption"] {{
+    width: 100%; margin: 0; box-sizing: border-box; padding: 12px;
+    border: 1px solid var(--soc-border-default); border-radius: 8px;
+    background: var(--soc-bg-surface); min-height: 74px;
+}}
+.st-key-review_disposition label[data-testid="stRadioOption"]:hover {{
+    border-color: var(--soc-border-strong);
+}}
+.st-key-review_disposition label[data-testid="stRadioOption"]:has(input:checked) {{
+    border-color: var(--soc-accent); background: var(--soc-bg-elevated);
+}}
+.st-key-review_disposition label[data-testid="stRadioOption"]:has(input:focus-visible) {{
+    outline: 2px solid var(--soc-accent-hover); outline-offset: 2px;
+}}
+.st-key-review_detail [data-testid="stForm"] {{
+    padding: 0; border: 0; background: transparent;
+}}
+{_REVIEW_FAMILY_STYLES}
+.st-key-review_corrected_class button {{
+    min-height: 36px; letter-spacing: 0; color: var(--soc-family-color);
+    border-color: color-mix(in srgb, var(--soc-family-color) 50%, var(--soc-border-default));
+}}
+.st-key-review_corrected_class [data-testid="stButtonGroup"] button[aria-checked="true"] {{
+    color: var(--soc-family-color);
+    background: color-mix(in srgb, var(--soc-family-color) 15%, var(--soc-bg-surface));
+    border-color: var(--soc-family-color);
+}}
+.st-key-review_corrected_class button:focus-visible {{
+    outline: 2px solid var(--soc-accent-hover); outline-offset: 2px;
+}}
 @media (max-width: 1100px) {{
     .st-key-model_split [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
     .st-key-model_split [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
         width: 100%; flex: 1 1 100%;
     }}
     .st-key-feedback_retraining, .st-key-evaluation_protocols {{ min-height: 0; }}
+    .st-key-review_workspace [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+    .st-key-review_workspace [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
+        width: 100%; flex: 1 1 100%;
+    }}
 }}
 @media (max-width: 480px) {{
-    .block-container:has(.st-key-model_operations) .soc-topbar {{ flex-wrap: wrap; gap: 8px; }}
-    .block-container:has(.st-key-model_operations) .soc-brand {{ width: 100%; }}
-    .block-container:has(.st-key-model_operations) .soc-brand-name {{ white-space: nowrap; }}
-    .block-container:has(.st-key-model_operations) .soc-topbar-spacer {{ display: none; }}
-    .block-container:has(.st-key-model_operations) .soc-runtime {{ width: 100%; flex-wrap: wrap; }}
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-topbar {{
+        flex-wrap: wrap; gap: 8px;
+    }}
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-brand {{
+        width: 100%;
+    }}
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-brand-name {{
+        white-space: nowrap;
+    }}
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-topbar-spacer {{
+        display: none;
+    }}
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-runtime {{
+        width: 100%; flex-wrap: wrap;
+    }}
+    .block-container:has(.st-key-review_workspace) .soc-topbar {{ padding-left: 36px; }}
+    .st-key-review_workspace .soc-tile-row {{
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+    }}
     .st-key-feedback_retraining, .st-key-evaluation_protocols {{ padding: 14px; }}
     .soc-proto-identity {{ flex-basis: 100%; }}
     .soc-proto-acc {{ flex-basis: 100%; text-align: left; margin-left: 0; }}
@@ -640,12 +714,10 @@ ICON_SCAN = (
     'stroke-linecap="round" stroke-linejoin="round"/></svg>'
 )
 
+# Streamlit 1.60's HTML sanitiser strips inline SVG; reuse its loaded icon font.
 ICON_QUEUE = (
-    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" '
-    'xmlns="http://www.w3.org/2000/svg">'
-    '<rect x="3" y="4" width="18" height="5" rx="1.6" stroke="#6B7688" stroke-width="1.6"/>'
-    '<rect x="3" y="12" width="18" height="5" rx="1.6" stroke="#6B7688" stroke-width="1.6"/>'
-    '<path d="M7 21h10" stroke="#6B7688" stroke-width="1.6" stroke-linecap="round"/></svg>'
+    '<span class="material-symbols-rounded" aria-hidden="true" '
+    'style="font-size:26px;line-height:1;color:#6B7688">view_list</span>'
 )
 
 

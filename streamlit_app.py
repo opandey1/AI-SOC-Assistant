@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -389,93 +390,109 @@ if view == "Triage":
         )
 
 elif view == "Review queue":
-    st.header("Analyst review queue")
-    st.caption(
-        "Every scored connection is stored in SQLite. Reviews are append-only — "
-        "the latest disposition wins, the history is preserved."
-    )
-
-    st.html(
-        ui.tile_row(
-            [
-                ui.tile("TICKETS", f"{queue_summary['total']:,}", "all time"),
-                ui.tile(
-                    "UNREVIEWED",
-                    f"{queue_summary['unreviewed']:,}",
-                    "awaiting analyst",
-                    color=ui.TOKENS["status-warn"],
-                ),
-                ui.tile(
-                    "REVIEWED",
-                    f"{queue_summary['reviewed']:,}",
-                    "dispositioned",
-                    color=ui.TOKENS["status-ok"],
-                ),
-                ui.tile(
-                    "FALSE POSITIVES",
-                    f"{queue_summary['false_positives']:,}",
-                    "feed retraining",
-                    color=ui.TOKENS["status-info"],
-                ),
-            ]
+    with st.container(key="review_workspace", gap=18):
+        st.header("Analyst review queue")
+        st.caption(
+            "Only generated alert tickets are stored in SQLite; cleared connections are not. "
+            "Reviews are append-only: the latest disposition wins and the history is preserved."
         )
-    )
-
-    review_state = st.segmented_control(
-        "Review state",
-        ["all", "unreviewed", *REVIEW_DISPOSITIONS],
-        default="unreviewed",
-        format_func=lambda value: value.replace("_", " ").capitalize(),
-    )
-    tickets = store.list_tickets(review_state=review_state, limit=200)
-    if not tickets:
-        st.info("No tickets match this review state.", icon=":material/inbox:")
-    else:
-        queue = pd.DataFrame(
-            [
-                {
-                    "ID": ticket.id,
-                    "Observed": ticket.observed_at,
-                    "Source IP": ticket.source_ip,
-                    "Class": ticket.predicted_class,
-                    "Confidence": ticket.fused_confidence,
-                    "Status": ticket.disposition or "unreviewed",
-                }
-                for ticket in tickets
-            ]
-        )
-        table_col, detail_col = st.columns([1.5, 1], gap="medium")
-        with table_col:
-            selection = st.dataframe(
-                queue,
-                hide_index=True,
-                key="review_queue_table",
-                on_select="rerun",
-                selection_mode="single-row",
-                # Size to content so short queues don't render a block of blank rows.
-                height=min(460, 44 + 35 * len(queue)),
-                column_config={
-                    "ID": st.column_config.NumberColumn(format="#%d", pinned=True),
-                    "Confidence": st.column_config.ProgressColumn(
-                        min_value=0.0,
-                        max_value=1.0,
-                        format="percent",
+        st.html(
+            ui.tile_row(
+                [
+                    ui.tile("TICKETS", f"{queue_summary['total']:,}", "all time"),
+                    ui.tile(
+                        "UNREVIEWED",
+                        f"{queue_summary['unreviewed']:,}",
+                        "awaiting analyst",
+                        color=ui.TOKENS["status-warn"],
                     ),
-                },
+                    ui.tile(
+                        "REVIEWED",
+                        f"{queue_summary['reviewed']:,}",
+                        "dispositioned",
+                        color=ui.TOKENS["status-ok"],
+                    ),
+                    ui.tile(
+                        "FALSE POSITIVES",
+                        f"{queue_summary['false_positives']:,}",
+                        "feed retraining",
+                        color=ui.TOKENS["status-info"],
+                    ),
+                ]
             )
+        )
+        review_state = st.segmented_control(
+            "Review state",
+            ["all", "unreviewed", *REVIEW_DISPOSITIONS],
+            default="unreviewed",
+            required=True,
+            key="review_state",
+            format_func=lambda value: value.replace("_", " ").capitalize(),
+        )
+        tickets = store.list_tickets(review_state=review_state, limit=200)
+        # Scope drafts and row selection to the database as well as the ticket/filter.
+        database_scope = sha256(str(Path(database_value).resolve()).encode()).hexdigest()[:16]
+        queue_revision = sha256(
+            ",".join(str(ticket.id) for ticket in tickets).encode()
+        ).hexdigest()[:16]
+        table_col, detail_col = st.columns([1.5, 1], gap="medium")
+        selected_rows = []
+        with table_col:
+            st.html(ui.panel_header("Alert tickets", f"{len(tickets)} shown / latest 200"))
+            if not tickets:
+                st.html(
+                    ui.empty_state(
+                        ui.ICON_QUEUE,
+                        "No tickets match this review state",
+                        "No stored alert tickets are available for this filter.",
+                    )
+                )
+            else:
+                queue = pd.DataFrame(
+                    [
+                        {
+                            "ID": ticket.id,
+                            "Observed": ticket.observed_at,
+                            "Source IP": ticket.source_ip,
+                            "Class": ticket.predicted_class,
+                            "Confidence": ticket.fused_confidence,
+                            "Status": ticket.disposition or "unreviewed",
+                        }
+                        for ticket in tickets
+                    ]
+                )
+                selection = st.dataframe(
+                    queue,
+                    hide_index=True,
+                    key=f"review_queue_table_{database_scope}_{review_state}_{queue_revision}",
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    height=min(460, 44 + 35 * len(queue)),
+                    column_config={
+                        "ID": st.column_config.NumberColumn(format="#%d", pinned=True),
+                        "Confidence": st.column_config.ProgressColumn(
+                            min_value=0.0,
+                            max_value=1.0,
+                            format="percent",
+                        ),
+                    },
+                )
+                selected_rows = selection.selection.rows
 
-        with detail_col:
-            if not selection.selection.rows:
+        with detail_col, st.container(key="review_detail", gap=14):
+            st.html(ui.panel_header("Analyst disposition"))
+            if not selected_rows or not 0 <= selected_rows[0] < len(tickets):
                 st.html(
                     ui.empty_state(
                         ui.ICON_QUEUE,
                         "No ticket selected",
-                        "Select a row to see its evidence bundle and record a disposition. "
-                        "False positives with a corrected class feed the retraining cohort.",
+                        "No analyst disposition is being drafted. "
+                        "Eligible false-positive corrections join the retraining cohort.",
                     )
                 )
             else:
-                selected = tickets[selection.selection.rows[0]]
+                selected = tickets[selected_rows[0]]
+                review_key = f"review_{database_scope}_{selected.id}"
                 st.html(
                     ui.card(
                         f"Ticket #{selected.id}",
@@ -492,39 +509,73 @@ elif view == "Review queue":
                                     f"{selected.fused_confidence:.1%}",
                                     ui.TOKENS["accent"],
                                 ),
+                                (
+                                    "Latest disposition",
+                                    (selected.disposition or "unreviewed").replace("_", " "),
+                                    None,
+                                ),
                             ]
                         ),
                     )
                 )
-
-                with st.form("review_form"):
-                    disposition = st.selectbox(
+                with st.container(key="review_disposition"):
+                    disposition = st.radio(
                         "Disposition",
                         REVIEW_DISPOSITIONS,
+                        index=None,
+                        key=f"{review_key}_disposition",
                         format_func=lambda value: value.replace("_", " ").capitalize(),
+                        captions=[
+                            "Validated malicious activity. Excluded from feedback retraining.",
+                            "Incorrect alert or family label. Correction feeds weighted retraining.",
+                            "Evidence is inconclusive. Excluded from feedback retraining.",
+                        ],
+                        width="stretch",
                     )
-                    corrected_class = st.selectbox(
-                        "Corrected class",
-                        CORRECTABLE_CLASSES,
-                        index=CORRECTABLE_CLASSES.index("normal"),
-                    )
-                    analyst = st.text_input("Analyst", value="analyst")
-                    notes = st.text_area("Notes")
+                # Disposition reruns immediately; draft fields are batched until Save.
+                with st.form(f"{review_key}_form", border=False):
+                    with st.container(key="review_corrected_class"):
+                        corrected_class = st.pills(
+                            "Corrected class",
+                            CORRECTABLE_CLASSES,
+                            default="normal",
+                            required=True,
+                            key=f"{review_key}_corrected_class",
+                            format_func=str.upper,
+                            disabled=disposition != "false_positive",
+                        )
+                    analyst = st.text_input("Analyst", key=f"{review_key}_analyst")
+                    notes = st.text_area("Notes", key=f"{review_key}_notes", height=100)
                     review_submitted = st.form_submit_button(
                         "Record review",
                         type="primary",
                         icon=":material/save:",
+                        disabled=disposition is None,
+                        key=f"{review_key}_submit",
+                        width="stretch",
                     )
                 if review_submitted:
-                    store.record_review(
-                        selected.id,
-                        disposition=disposition,
-                        corrected_class=corrected_class,
-                        analyst_notes=notes,
-                        reviewed_by=analyst,
-                    )
-                    st.toast("Review saved", icon=":material/check_circle:")
-                    st.rerun()
+                    if disposition not in REVIEW_DISPOSITIONS:
+                        st.error("Choose a disposition before recording a review.")
+                    elif (
+                        disposition == "false_positive"
+                        and corrected_class not in CORRECTABLE_CLASSES
+                    ):
+                        st.error("Choose a corrected class for the false-positive review.")
+                    elif not analyst.strip():
+                        st.error("Enter an analyst name before recording a review.")
+                    else:
+                        store.record_review(
+                            selected.id,
+                            disposition=disposition,
+                            corrected_class=(
+                                corrected_class if disposition == "false_positive" else None
+                            ),
+                            analyst_notes=notes,
+                            reviewed_by=analyst,
+                        )
+                        st.toast("Review saved", icon=":material/check_circle:")
+                        st.rerun()
 
                 with st.expander("Incident ticket", icon=":material/article:"):
                     st.markdown(selected.ticket_text)

@@ -135,3 +135,22 @@ def test_css_defines_every_token_and_protects_the_icon_font():
     stylesheet = re.sub(r"/\*.*?\*/", "", ui.CSS, flags=re.DOTALL)
     assert '[class*="st-"]' not in stylesheet
     assert "Material Symbols Rounded" in stylesheet
+
+
+def test_review_pill_styles_match_the_native_family_order():
+    from src.feedback import CORRECTABLE_CLASSES
+
+    assert tuple(name for name in ui.FAMILY_COLORS if name != "unknown") == CORRECTABLE_CLASSES
+    for index, family in enumerate(CORRECTABLE_CLASSES, start=1):
+        assert (
+            f"button:nth-child({index}) {{ --soc-family-color: {ui.family_color(family)}; }}"
+            in ui.CSS
+        )
+
+
+def test_review_empty_state_uses_the_existing_icon_font_not_sanitised_svg():
+    rendered = ui.empty_state(ui.ICON_QUEUE, "No ticket selected", "No draft")
+    assert 'class="material-symbols-rounded"' in rendered
+    assert 'aria-hidden="true"' in rendered
+    assert "view_list" in rendered
+    assert "<svg" not in rendered
