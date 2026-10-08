@@ -128,6 +128,12 @@ The console reads the same NSL-KDD files, persists alert tickets to `state/soc_f
 
 The interface is built on a small design system in [`src/ui.py`](src/ui.py): a single token set defines the surfaces, the five attack-family colours, and the type ramp, and every rendered value is HTML-escaped because source IPs, event ids, and SHAP feature names reach the DOM. SHAP drivers render as signed contribution bars normalised to the largest-magnitude driver and labelled `SUPPORTS`, `OPPOSES`, or `NEUTRAL`; raw SHAP floats stay in the scoring-details expander and never enter the ticket.
 
+The Review queue uses captioned native disposition cards and family-coloured
+correction pills. Reviews require an explicit disposition and a nonblank analyst
+name; only false-positive corrections feed retraining. Names remain free-text
+attribution, not authentication. See the [implementation and verification record](docs/review_queue_ui.md)
+for state-isolation checks, four-width browser evidence and executed commands.
+
 ### Live event ingestion
 
 Replay test connections one event at a time with a visible delay:
