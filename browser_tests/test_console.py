@@ -31,7 +31,7 @@ def settled(page):
 
 def open_governance(page):
     page.get_by_text("Feedback governance", exact=True).click()
-    expect(page.get_by_role("button", name="Download cohort audit", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name=re.compile(r"Download cohort audit$"))).to_be_visible()
     page.wait_for_function(
         """() => {
             const button = [...document.querySelectorAll('button')].find(el => el.textContent.includes('Download cohort audit'));
