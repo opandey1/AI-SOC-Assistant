@@ -5,7 +5,15 @@ import sqlite3
 import pytest
 from playwright.sync_api import expect
 
-from browser_tests.test_console import analyze, disposition, layout, rows, select, select_ticket
+from browser_tests.test_console import (
+    analyze,
+    disposition,
+    layout,
+    open_governance,
+    rows,
+    select,
+    select_ticket,
+)
 
 pytestmark = [
     pytest.mark.candidate_evaluation,
@@ -32,6 +40,53 @@ def test_real_candidate_promotion_and_rollback(console):
         page.locator('.st-key-review_detail [data-testid="stFormSubmitButton"] button').click()
         expect(page.get_by_text("No ticket selected", exact=True)).to_be_visible()
     assert rows(console, "SELECT COUNT(*) FROM reviews") == [(5,)]
+    select(page, "Model")
+    expect(page.locator(".st-key-retrain_model button")).to_be_disabled()
+    open_governance(page)
+    expect(page.get_by_text("5 awaiting agreement", exact=False)).to_be_visible()
+    layout(console, "awaiting-second-review")
+    select(page, "Review queue")
+    select(page, "All", scope=page.locator(".st-key-review_state"))
+    for index in range(5):
+        select_ticket(page, index=index)
+        expect(
+            page.locator(".st-key-review_detail").get_by_text(f"Ticket #{5-index}", exact=True)
+        ).to_be_visible()
+        disposition(page, "False positive")
+        select(page, "DOS", scope=page.locator(".st-key-review_corrected_class"))
+        page.get_by_role("textbox", name="Analyst", exact=True).fill("second-browser-analyst")
+        page.locator('.st-key-review_detail [data-testid="stFormSubmitButton"] button').click()
+        expect(
+            page.locator(".st-key-review_detail").get_by_text(f"review-{6+index}", exact=True)
+        ).to_be_visible()
+    assert rows(console, "SELECT COUNT(*) FROM reviews") == [(10,)]
+    select(page, "Model")
+    expect(page.locator(".st-key-retrain_model button")).to_be_enabled()
+    select(page, "Review queue")
+    select(page, "All", scope=page.locator(".st-key-review_state"))
+    select_ticket(page)
+    disposition(page, "False positive")
+    select(page, "NORMAL", scope=page.locator(".st-key-review_corrected_class"))
+    page.get_by_role("textbox", name="Analyst", exact=True).fill("second-browser-analyst")
+    page.locator('.st-key-review_detail [data-testid="stFormSubmitButton"] button').click()
+    expect(
+        page.locator(".st-key-review_detail").get_by_text("review-11", exact=True)
+    ).to_be_visible()
+    select(page, "Model")
+    expect(page.locator(".st-key-retrain_model button")).to_be_disabled()
+    open_governance(page)
+    expect(page.get_by_text("1 conflicting", exact=False)).to_be_visible()
+    layout(console, "conflict-held-out")
+    select(page, "Review queue")
+    select(page, "All", scope=page.locator(".st-key-review_state"))
+    select_ticket(page)
+    disposition(page, "False positive")
+    select(page, "DOS", scope=page.locator(".st-key-review_corrected_class"))
+    page.get_by_role("textbox", name="Analyst", exact=True).fill("second-browser-analyst")
+    page.locator('.st-key-review_detail [data-testid="stFormSubmitButton"] button').click()
+    expect(
+        page.locator(".st-key-review_detail").get_by_text("review-12", exact=True)
+    ).to_be_visible()
     select(page, "Model")
     expect(page.locator(".st-key-retrain_model button")).to_be_enabled()
     page.locator(".st-key-retrain_model button").click()
@@ -81,4 +136,4 @@ def test_real_candidate_promotion_and_rollback(console):
             ("promote", "browser-model-operator"),
             ("rollback", "browser-model-operator"),
         ]
-    assert rows(console, "SELECT COUNT(*) FROM reviews") == [(5,)]
+    assert rows(console, "SELECT COUNT(*) FROM reviews") == [(12,)]

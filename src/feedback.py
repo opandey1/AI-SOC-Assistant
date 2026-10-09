@@ -40,6 +40,7 @@ class TicketRecord:
     analyst_notes: str | None
     reviewed_by: str | None
     reviewed_at: str | None
+    review_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -54,6 +55,8 @@ class FeedbackExample:
     raw_record: dict[str, Any]
     corrected_class: str
     review_id: int | None = None
+    review_ids: tuple[int, ...] = ()
+    reviewers: tuple[str, ...] = ()
 
 
 def _utc_now() -> str:
@@ -241,6 +244,7 @@ class FeedbackStore:
             analyst_notes=row["analyst_notes"],
             reviewed_by=row["reviewed_by"],
             reviewed_at=row["reviewed_at"],
+            review_id=row["review_id"],
         )
 
     @staticmethod
@@ -302,7 +306,7 @@ class FeedbackStore:
         return [self._ticket_from_row(row) for row in rows]
 
     def feedback_examples(self) -> list[FeedbackExample]:
-        """Return latest false-positive corrections for model retraining."""
+        """Latest false-positive rows for legacy explicit-output fitting, not consensus."""
 
         query = (
             self._select_with_latest_review()
@@ -322,6 +326,34 @@ class FeedbackStore:
                 corrected_class=str(row["corrected_class"]),
                 review_id=int(row["review_id"]),
             )
+            for row in rows
+        ]
+
+    def review_snapshot(self, *, connection=None) -> list[dict[str, Any]]:
+        """Read decisions and raw records in one snapshot; omit notes and ticket text."""
+        if connection is None:
+            connection = self._connect()
+            try:
+                return self.review_snapshot(connection=connection)
+            finally:
+                connection.close()
+        return self._review_rows(connection)
+
+    @staticmethod
+    def _review_rows(connection) -> list[dict[str, Any]]:
+        rows = connection.execute(
+            """
+            SELECT t.id AS ticket_id, t.event_id, t.raw_record_json,
+                   r.id AS review_id, r.reviewed_by, r.disposition, r.corrected_class
+            FROM reviews AS r JOIN tickets AS t ON t.id = r.ticket_id
+            ORDER BY r.id
+            """
+        ).fetchall()
+        return [
+            {
+                **{key: row[key] for key in row.keys() if key != "raw_record_json"},
+                "raw_record": json.loads(row["raw_record_json"]),
+            }
             for row in rows
         ]
 

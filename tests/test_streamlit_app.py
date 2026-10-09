@@ -35,7 +35,8 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, DatasetPaths
-from src.feedback import CORRECTABLE_CLASSES, FeedbackExample, FeedbackStore, TicketRecord
+from src.feedback import CORRECTABLE_CLASSES, FeedbackStore, TicketRecord
+from src.feedback_policy import build_cohort
 from src.retrain import RetrainingReport
 from src.runtime import ConnectionAnalysis
 from src.train import ConnectionScore
@@ -479,6 +480,7 @@ def isolated_review_store(monkeypatch):
     store = Mock(spec=FeedbackStore)
     store.summary.return_value = dict(total=0, reviewed=0, unreviewed=0, false_positives=0)
     store.feedback_examples.return_value = []
+    store.review_snapshot.return_value = []
     store.list_tickets.return_value = []
     monkeypatch.setattr("src.feedback.FeedbackStore", lambda _path: store)
     return store
@@ -520,6 +522,11 @@ def _review_app() -> AppTest:
     app.segmented_control[0].set_value("Review queue").run()
     _assert_clean(app, "Review queue")
     return app
+
+
+def test_review_table_row_height_matches_layout(app_workspace, review_tickets):
+    app = _review_app()
+    assert app.dataframe[0].proto.row_height == 35
 
 
 def _select_ticket(app: AppTest, row: int = 0) -> AppTest:
@@ -670,7 +677,7 @@ def test_model_controls_are_disabled_without_a_reviewed_cohort(
     assert app.slider(key="feedback_weight").disabled
     assert app.button(key="retrain_model").disabled
     html = " ".join(element.proto.body for element in app.get("html"))
-    assert "No reviewed cohort yet" in html
+    assert "No consensus-approved cohort yet" in html
     assert "not a re-evaluation of any retrained candidate" in html
     assert html.index("Cross-dataset transfer") < html.index("Cross-distribution")
     assert html.index("Cross-distribution") < html.index("Stratified hold-out")
@@ -680,9 +687,10 @@ def test_feedback_slider_value_is_passed_to_retraining(
     app_workspace, isolated_review_store, monkeypatch
 ):
     store = isolated_review_store
-    store.feedback_examples.return_value = [
-        FeedbackExample(i, f"event-{i}", {}, "normal") for i in range(7, 12)
-    ]
+    store.review_snapshot.return_value = _consensus_rows(range(7, 12))
+    store.get_ticket.side_effect = lambda i: SimpleNamespace(
+        id=i, event_id=f"event-{i}", predicted_class="probe", corrected_class="normal"
+    )
     store.list_tickets.return_value = [
         SimpleNamespace(id=7, event_id="event-7", predicted_class="probe", corrected_class="normal")
     ]
@@ -725,7 +733,7 @@ def test_feedback_slider_value_is_passed_to_retraining(
     assert not app.slider(key="feedback_weight").disabled
     html = " ".join(element.proto.body for element in app.get("html"))
     assert "#7" in html and "event-7" in html
-    store.list_tickets.assert_called_once_with(review_state="false_positive", limit=6)
+    assert store.get_ticket.call_count == 5
     app.slider(key="feedback_weight").set_value(12.5).run()
     assert not retrain.called, "adjusting the slider must not start a retraining run"
     app.button(key="retrain_model").click().run()
@@ -734,7 +742,7 @@ def test_feedback_slider_value_is_passed_to_retraining(
     assert retrain.call_args.kwargs["feedback_weight"] == 12.5
     assert app.session_state.last_retrain_report["feedback_weight"] == 12.5
     assert app.button(key="promote_candidate").disabled
-    assert "active model unchanged" in app.status[0].label
+    assert any("active model unchanged" in status.label for status in app.status)
 
 
 def test_retrained_model_warning_remains_visible(
@@ -752,9 +760,7 @@ def test_retrained_model_warning_remains_visible(
 
 @pytest.mark.parametrize("count", [1, 4, 5])
 def test_cohort_minimum_is_reflected_in_model_action(app_workspace, isolated_review_store, count):
-    isolated_review_store.feedback_examples.return_value = [
-        FeedbackExample(i, f"event-{i}", {}, "normal") for i in range(count)
-    ]
+    isolated_review_store.review_snapshot.return_value = _consensus_rows(range(count))
     app = _run()
     app.segmented_control[0].set_value("Model").run()
     _assert_clean(app, "cohort policy")
@@ -781,6 +787,15 @@ def candidate_view(app_workspace, isolated_review_store, monkeypatch):
         feedback_corrected_after=5,
         baseline_macro_f1=1.0,
         updated_macro_f1=1.0,
+        feedback_weight=25,
+        feedback_governance=dict(
+            version=1,
+            policy=dict(
+                minimum_reviewers=2, total_weight_fraction=0.1, reviewer_weight_fraction=0.05
+            ),
+            cohort=dict(snapshot_sha256=build_cohort([]).snapshot_sha256),
+            weights=dict(effective_weight=1, total_weight=5, total_cap=10),
+        ),
     )
 
     def promote(_id, **kwargs):
@@ -799,7 +814,9 @@ def candidate_view(app_workspace, isolated_review_store, monkeypatch):
     monkeypatch.setattr(ModelRegistry, "history", lambda self: [])
     monkeypatch.setattr(ModelRegistry, "promote", promotion)
     monkeypatch.setattr(ModelRegistry, "rollback", rollback)
-    return SimpleNamespace(state=state, candidate=candidate, promotion=promotion, rollback=rollback)
+    return SimpleNamespace(
+        state=state, candidate=candidate, promotion=promotion, rollback=rollback, report=report
+    )
 
 
 def _candidate_app():
@@ -828,12 +845,16 @@ def test_promotion_requires_operator_confirmation_and_resets_after_change(candid
     candidate_view.rollback.assert_called_once_with(expected_generation=1, actor="alice")
 
 
-@pytest.mark.parametrize("reason", ["rejected", "stale"])
+@pytest.mark.parametrize("reason", ["rejected", "stale", "old_policy", "changed_review"])
 def test_candidate_cannot_be_promoted_from_unready_ui(candidate_view, reason):
     if reason == "rejected":
         candidate_view.candidate.update(accepted=False, reasons=["regressed_macro_f1"])
-    else:
+    elif reason == "stale":
         candidate_view.state["generation"] = 1
+    elif reason == "old_policy":
+        candidate_view.report.pop("feedback_governance")
+    else:
+        candidate_view.report["feedback_governance"]["cohort"]["snapshot_sha256"] = "changed"
     app = _candidate_app()
     app.text_input(key="model_operator").set_value("alice").run()
     app.checkbox[0].check().run()
@@ -858,17 +879,50 @@ def test_failed_candidate_fit_is_safe_and_does_not_clear_active_model(
 ):
     from src.model_registry import ModelRegistry
 
-    isolated_review_store.feedback_examples.return_value = [
-        FeedbackExample(i, f"event-{i}", {}, "normal") for i in range(5)
-    ]
+    isolated_review_store.review_snapshot.return_value = _consensus_rows(range(5))
     fit = Mock(side_effect=ValueError("private-payload=do-not-display"))
     monkeypatch.setattr(ModelRegistry, "create_candidate", fit)
     app = _candidate_app()
     app.button(key="retrain_model").click().run()
     _assert_clean(app, "failed candidate fit")
-    assert app.status[0].state == "error"
+    assert (
+        next(status for status in app.status if status.label == "Candidate training failed").state
+        == "error"
+    )
     assert "do-not-display" not in app.error[0].value + caplog.text
     assert app.session_state.last_retrain_report is None
+
+
+def _consensus_rows(tickets, reviewers=("alice", "bob")):
+    return [
+        dict(
+            ticket_id=i,
+            event_id=f"event-{i}",
+            raw_record={},
+            corrected_class="normal",
+            reviewed_by=name,
+            disposition="false_positive",
+            review_id=i * 10 + n,
+        )
+        for i in tickets
+        for n, name in enumerate(reviewers, 1)
+    ]
+
+
+def test_single_label_corrections_are_not_consensus(app_workspace, isolated_review_store):
+    isolated_review_store.review_snapshot.return_value = _consensus_rows(range(5), ("alice",))
+    app = _candidate_app()
+    assert app.button(key="retrain_model").disabled
+    assert any("5 awaiting agreement" in caption.value for caption in app.caption)
+
+
+def test_conflicted_ticket_is_visible_but_not_in_training(app_workspace, isolated_review_store):
+    reviews = _consensus_rows(range(5))
+    reviews[0]["corrected_class"] = "dos"
+    isolated_review_store.review_snapshot.return_value = reviews
+    app = _candidate_app()
+    assert app.button(key="retrain_model").disabled
+    assert any("1 conflicting" in caption.value for caption in app.caption)
 
 
 # Note on coverage. ``AppTest`` execs the script rather than importing it as a module, so

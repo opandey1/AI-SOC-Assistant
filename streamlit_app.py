@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sqlite3
+from dataclasses import asdict
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -20,6 +21,7 @@ from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resol
 from src.model_store import MODEL_ARTIFACT_FORMAT, load_model_artifact, runtime_from_artifact
 from src.model_registry import ModelRegistry
 from src.retrain import MINIMUM_FEEDBACK_EXAMPLES
+from src.feedback_policy import FeedbackPolicy, build_cohort
 from src.runtime import (
     ConnectionAnalysis,
     analyze_raw_connection,
@@ -517,7 +519,8 @@ elif view == "Review queue":
         st.header("Analyst review queue")
         st.caption(
             "Only generated alert tickets are stored in SQLite; cleared connections are not. "
-            "Reviews are append-only: the latest disposition wins and the history is preserved."
+            "Reviews are append-only: the latest disposition is shown and history is preserved. "
+            "Training requires agreement between reviewer labels."
         )
         st.html(
             ui.tile_row(
@@ -538,7 +541,7 @@ elif view == "Review queue":
                     ui.tile(
                         "FALSE POSITIVES",
                         f"{queue_summary['false_positives']:,}",
-                        "feed retraining",
+                        "latest review disposition",
                         color=ui.TOKENS["status-info"],
                     ),
                 ]
@@ -590,6 +593,7 @@ elif view == "Review queue":
                     key=f"review_queue_table_{database_scope}_{review_state}_{queue_revision}",
                     on_select="rerun",
                     selection_mode="single-row",
+                    row_height=35,
                     height=min(460, 44 + 35 * len(queue)),
                     column_config={
                         "ID": st.column_config.NumberColumn(format="#%d", pinned=True),
@@ -610,7 +614,7 @@ elif view == "Review queue":
                         ui.ICON_QUEUE,
                         "No ticket selected",
                         "No analyst disposition is being drafted. "
-                        "Eligible false-positive corrections join the retraining cohort.",
+                        "Corrections need two agreeing reviewer labels before joining the retraining cohort.",
                     )
                 )
             else:
@@ -635,6 +639,20 @@ elif view == "Review queue":
                                 (
                                     "Latest disposition",
                                     (selected.disposition or "unreviewed").replace("_", " "),
+                                    None,
+                                ),
+                                (
+                                    "Latest reviewer label",
+                                    selected.reviewed_by or "unreviewed",
+                                    None,
+                                ),
+                                (
+                                    "Latest review ID",
+                                    (
+                                        f"review-{selected.review_id}"
+                                        if selected.review_id
+                                        else "unreviewed"
+                                    ),
                                     None,
                                 ),
                             ]
@@ -721,7 +739,8 @@ else:
                 icon=":material/warning:",
             )
 
-        feedback_examples = store.feedback_examples()
+        feedback_cohort = build_cohort(store.review_snapshot())
+        feedback_examples = feedback_cohort.examples
         cohort_ready = len(feedback_examples) >= MINIMUM_FEEDBACK_EXAMPLES
         st.html(
             ui.tile_row(
@@ -735,7 +754,7 @@ else:
                     ui.tile(
                         "FEEDBACK EXAMPLES",
                         str(len(feedback_examples)),
-                        "false positives corrected",
+                        "consensus-approved corrections",
                         color=ui.TOKENS["status-info"],
                     ),
                     ui.tile(
@@ -758,6 +777,25 @@ else:
             )
         )
 
+        with st.expander("Feedback governance", icon=":material/groups:"):
+            st.caption(
+                f"{feedback_cohort.summary['eligible']} eligible; "
+                f"{feedback_cohort.summary['awaiting_consensus']} awaiting agreement; "
+                f"{feedback_cohort.summary['conflict']} conflicting; "
+                f"{feedback_cohort.summary['excluded']} excluded. "
+                "Reviewer labels are unauthenticated. Peer agreement is not label accuracy."
+            )
+            if feedback_cohort.decisions:
+                st.dataframe(list(feedback_cohort.decisions), hide_index=True, width="stretch")
+                st.dataframe(list(feedback_cohort.reviewers), hide_index=True, width="stretch")
+            st.download_button(
+                "Download cohort audit",
+                json.dumps(feedback_cohort.audit(), indent=2),
+                file_name="feedback_cohort.json",
+                mime="application/json",
+                icon=":material/download:",
+            )
+
         with st.container(key="model_split", gap=18):
             retrain_col, eval_col = st.columns([520, 850], gap="small")
 
@@ -768,12 +806,13 @@ else:
                 st.html(
                     ui.panel_header(
                         "Feedback retraining",
-                        "Corrected rows are appended to the training set with an elevated "
-                        "sample weight.",
+                        "Consensus-approved corrections with budget-capped sample weights.",
                     )
                 )
                 if feedback_examples:
-                    cohort = store.list_tickets(review_state="false_positive", limit=6)
+                    cohort = [
+                        store.get_ticket(example.ticket_id) for example in feedback_examples[:6]
+                    ]
                     st.html(
                         ui.section_label("REVIEWED COHORT")
                         + ui.cohort_table(
@@ -792,14 +831,14 @@ else:
                 else:
                     st.html(
                         ui.callout(
-                            "No reviewed cohort yet",
+                            "No consensus-approved cohort yet",
                             f"At least {MINIMUM_FEEDBACK_EXAMPLES} eligible corrections are "
-                            "required for a candidate run.",
+                            "required, each with two agreeing reviewer labels.",
                             ui.TOKENS["text-tertiary"],
                         )
                     )
                 feedback_weight = st.slider(
-                    "Feedback sample weight",
+                    "Requested feedback weight",
                     min_value=1.0,
                     max_value=60.0,
                     value=25.0,
@@ -816,8 +855,11 @@ else:
                 st.html(
                     ui.callout(
                         "",
-                        "The five-correction minimum and weight limit are prototype safeguards, "
-                        "not analyst consensus. Acceptance compares RF accuracy, macro F1 and "
+                        "Five corrections and two agreeing labels per ticket are required; "
+                        "conflicts are held out. Total feedback weight is capped at 10% of base "
+                        "training weight, with 5% credited to any reviewer label. These are "
+                        "local prototype safeguards, not authenticated consensus. "
+                        "Acceptance compares RF accuracy, macro F1 and "
                         "all five class recalls on this evaluation file, not production quality.",
                         ui.TOKENS["status-warn"],
                     )
@@ -895,6 +937,21 @@ else:
             except (ValueError, OSError, KeyError):
                 st.error("Candidate bundle integrity check failed. No model selection was changed.")
                 st.stop()
+            candidate_governance = st.session_state.last_retrain_report.get(
+                "feedback_governance", {}
+            )
+            current_policy = candidate_governance.get("version") == 1 and candidate_governance.get(
+                "policy"
+            ) == asdict(FeedbackPolicy())
+            current_reviews = (
+                current_policy
+                and candidate_governance["cohort"]["snapshot_sha256"]
+                == feedback_cohort.snapshot_sha256
+            )
+            if not current_policy:
+                st.warning("Candidate predates the current feedback policy. Train a new candidate.")
+            elif not current_reviews:
+                st.warning("Review decisions changed since training. Train a new candidate.")
             if candidate["accepted"]:
                 st.success(
                     "Evaluation non-regression check passed; not yet production certification."
@@ -915,6 +972,7 @@ else:
                         confirmed
                         and operator.strip()
                         and candidate["accepted"]
+                        and current_reviews
                         and candidate["parent_generation"] == registry_state["generation"]
                     ),
                 )
@@ -949,6 +1007,14 @@ else:
                 st.json(registry.history())
     if st.session_state.last_retrain_report:
         report = st.session_state.last_retrain_report
+        governance = report.get("feedback_governance")
+        if governance:
+            weights = governance["weights"]
+            st.caption(
+                f"Requested feedback weight {report['feedback_weight']:.2f}; "
+                f"effective per-row weight {weights['effective_weight']:.4f}; "
+                f"total {weights['total_weight']:.2f} / {weights['total_cap']:.2f} budget."
+            )
         delta = report["updated_macro_f1"] - report["baseline_macro_f1"]
         st.html(ui.section_label("LATEST CANDIDATE"))
         st.html(

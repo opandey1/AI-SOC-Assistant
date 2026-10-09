@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
@@ -15,7 +15,13 @@ import shutil
 import sqlite3
 from uuid import uuid4
 
-from src.retrain import classification_metrics, file_digest, retrain_from_feedback
+from src.retrain import (
+    MINIMUM_FEEDBACK_EXAMPLES,
+    classification_metrics,
+    file_digest,
+    retrain_from_feedback,
+)
+from src.feedback_policy import FeedbackPolicy, locked_cohort, weight_plan
 
 FAMILIES = ("normal", "dos", "probe", "r2l", "u2r")
 
@@ -202,6 +208,7 @@ class ModelRegistry:
                 feedback_weight=feedback_weight,
                 use_smote=use_smote,
                 isolation_threshold=isolation_threshold,
+                feedback_policy=FeedbackPolicy(),
             )
             payload = asdict(report)
             # The path in a published report must not point at a removed staging directory.
@@ -234,6 +241,7 @@ class ModelRegistry:
                 "created_at": report.trained_at,
                 "model_version": report.model_version,
                 "kind": "feedback",
+                "feedback_database": str(Path(database_path).resolve()),
                 "parent_generation": state["generation"],
                 "reference_sha256": reference_hash,
                 "accepted": not reasons,
@@ -268,7 +276,7 @@ class ModelRegistry:
             raise ValueError("expected_generation must be a nonnegative integer.")
         if not actor.strip():
             raise ValueError("An operator name is required (not authenticated identity).")
-        with self._connect() as connection:
+        with ExitStack() as guards, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             state = dict(
                 connection.execute(
@@ -293,6 +301,27 @@ class ModelRegistry:
                 report = json.loads(
                     (self.root / candidate_id / "report.json").read_text(encoding="utf-8")
                 )
+                governance = report.get("feedback_governance", {})
+                policy = FeedbackPolicy()
+                if (
+                    governance.get("version") != 1
+                    or governance.get("policy") != asdict(policy)
+                    or not manifest.get("feedback_database")
+                ):
+                    raise ValueError(
+                        "Candidate predates the current feedback policy; train a new candidate."
+                    )
+                cohort = guards.enter_context(locked_cohort(manifest["feedback_database"], policy))
+                if cohort.snapshot_sha256 != governance["cohort"]["snapshot_sha256"]:
+                    raise ValueError("Review decisions changed; train a new candidate.")
+                weights = governance["weights"]
+                if len(cohort.examples) < MINIMUM_FEEDBACK_EXAMPLES or weights != weight_plan(
+                    cohort,
+                    base_rows=weights["base_training_weight"],
+                    requested_weight=report["feedback_weight"],
+                    policy=policy,
+                ):
+                    raise ValueError("Candidate feedback budget or cohort is invalid.")
                 reasons = acceptance_reasons(report)
                 reference = manifest["active_reference_metrics"]
                 if reference:

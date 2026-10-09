@@ -68,6 +68,7 @@ def test_ticket_logging_is_idempotent_and_review_history_is_append_only(tmp_path
     assert reviewed.disposition == "false_positive"
     assert reviewed.corrected_class == "normal"
     assert reviewed.reviewed_by == "alice"
+    assert reviewed.review_id == first_review
     assert store.feedback_examples()[0].event_id == "event-1"
 
     second_review = store.record_review(
@@ -78,6 +79,7 @@ def test_ticket_logging_is_idempotent_and_review_history_is_append_only(tmp_path
 
     assert second_review > first_review
     assert store.get_ticket(first_id).disposition == "needs_investigation"
+    assert store.get_ticket(first_id).review_id == second_review
     assert store.feedback_examples() == []
 
 

@@ -5,6 +5,7 @@ from dataclasses import asdict
 import json
 import sqlite3
 import sys
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -13,6 +14,8 @@ from src.model_registry import ModelRegistry, acceptance_reasons
 from src.model_store import ModelArtifact, save_model_artifact
 from src.retrain import RetrainingReport, file_digest
 from src.train import IsolationScoreCalibration
+from src.feedback import FeedbackStore
+from src.feedback_policy import FeedbackPolicy, build_cohort, weight_plan
 
 
 @pytest.fixture
@@ -50,6 +53,33 @@ def registry(tmp_path, monkeypatch):
 
 def register(registry, report, *, parent=0, reference=None):
     """Fixture bundles are not training/evaluation evidence; separate real-fit tests are."""
+    store = FeedbackStore(registry.root.parent / "reviews.db")
+    analysis = SimpleNamespace(
+        ticket="Synthetic registry fixture",
+        score=SimpleNamespace(
+            fused_anomaly=True, rf_confidence=0.9, fused_confidence=0.9, alert_reason="both"
+        ),
+        source_ip="192.0.2.1",
+        predicted_class="dos",
+        raw_record={"duration": 1},
+        evidence={},
+        model_version="fixture",
+    )
+    for i in range(5):
+        ticket = store.log_analysis(analysis, event_id=f"test-{i}", source="test")
+        if not store.get_ticket(ticket).reviewed_by:
+            for name in ("alice", "bob"):
+                store.record_review(
+                    ticket, disposition="false_positive", corrected_class="dos", reviewed_by=name
+                )
+    cohort = build_cohort(store.review_snapshot())
+    report["feedback_governance"] = dict(
+        version=1,
+        identity="unauthenticated_local_labels",
+        policy=asdict(FeedbackPolicy()),
+        cohort=cohort.audit(),
+        weights=weight_plan(cohort, base_rows=100, requested_weight=report["feedback_weight"]),
+    )
     candidate_id = uuid4().hex
     directory = registry.root / candidate_id
     directory.mkdir(parents=True)
@@ -69,6 +99,7 @@ def register(registry, report, *, parent=0, reference=None):
     manifest = dict(
         id=candidate_id,
         kind="feedback",
+        feedback_database=str(store.path.resolve()),
         created_at=report["trained_at"],
         model_version=report["model_version"],
         parent_generation=parent,
@@ -277,3 +308,81 @@ def test_registry_cli_lists_promotes_and_rolls_back(registry, report, monkeypatc
     )
     main()
     assert json.loads(capsys.readouterr().out)["active"] is None
+
+
+def test_changed_review_snapshot_blocks_promotion_without_changing_selection(registry, report):
+    candidate = register(registry, report)
+    store = FeedbackStore(registry.root.parent / "reviews.db")
+    store.record_review(1, disposition="needs_investigation", reviewed_by="alice")
+    with pytest.raises(ValueError, match="Review decisions changed"):
+        registry.promote(candidate, expected_generation=0, actor="alice")
+    assert registry.state()["generation"] == 0 and registry.history() == []
+    # The failed promotion must release the feedback lock.
+    store.record_review(1, disposition="false_positive", corrected_class="dos", reviewed_by="alice")
+
+
+def rewrite_fixture_report(registry, candidate, report):
+    """Simulate an old/invalid authoritative bundle; this is trusted fixture mutation."""
+    path = registry.root / candidate / "report.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with registry._connect() as connection:
+        manifest = json.loads(
+            connection.execute(
+                "SELECT manifest FROM candidates WHERE id = ?", (candidate,)
+            ).fetchone()[0]
+        )
+        manifest["sha256"]["report.json"] = file_digest(path)
+        connection.execute(
+            "UPDATE candidates SET manifest = ? WHERE id = ?", (json.dumps(manifest), candidate)
+        )
+
+
+def test_old_candidate_without_current_policy_is_not_grandfathered(registry, report):
+    candidate = register(registry, report)
+    report.pop("feedback_governance")
+    rewrite_fixture_report(registry, candidate, report)
+    with pytest.raises(ValueError, match="predates"):
+        registry.promote(candidate, expected_generation=0, actor="alice")
+    assert registry.state()["generation"] == 0
+
+
+def test_invalid_recorded_budget_cannot_promote(registry, report):
+    candidate = register(registry, report)
+    report["feedback_governance"]["weights"]["sample_weights"] = [60] * 5
+    rewrite_fixture_report(registry, candidate, report)
+    with pytest.raises(ValueError, match="budget or cohort"):
+        registry.promote(candidate, expected_generation=0, actor="alice")
+    assert registry.state()["generation"] == 0
+
+
+def test_feedback_lock_is_held_until_registry_transaction_commits(registry, report, monkeypatch):
+    from contextlib import contextmanager
+    from src.feedback_policy import locked_cohort as real_locked
+
+    candidate = register(registry, report)
+    observed = []
+
+    @contextmanager
+    def observe_lock(path, policy):
+        with real_locked(path, policy) as cohort:
+            yield cohort
+            # Registry pointer and history must already be committed before lock release.
+            with sqlite3.connect(registry.database) as connection:
+                observed.append(
+                    connection.execute("SELECT generation FROM selection").fetchone()[0]
+                )
+            other = sqlite3.connect(path, timeout=0)
+            try:
+                with pytest.raises(sqlite3.OperationalError, match="locked"):
+                    other.execute(
+                        "INSERT INTO reviews (ticket_id, disposition, reviewed_by, created_at) VALUES (1, 'needs_investigation', 'carol', 'test')"
+                    )
+            finally:
+                other.close()
+
+    monkeypatch.setattr("src.model_registry.locked_cohort", observe_lock)
+    registry.promote(candidate, expected_generation=0, actor="alice")
+    assert observed == [1]
+    FeedbackStore(registry.root.parent / "reviews.db").record_review(
+        1, disposition="needs_investigation", reviewed_by="carol"
+    )
