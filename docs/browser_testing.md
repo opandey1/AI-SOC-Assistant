@@ -22,6 +22,8 @@ datasets, a running user server, cloud credentials or a saved model artifact.
 **16 parameterized console cases**: four workflows at four widths, each with a fresh
 app, database and browser context. The startup follow-up below adds three separate
 readiness-only cases on controlled HTML, bringing the browser suite to **19 cases**.
+The candidate-governance follow-up below adds four real lifecycle workflows,
+bringing the current suite to **23 cases** (20 console and three readiness-only).
 
 1. **Triage / JSON:** initial icon, dataset clear with no ticket, malformed/non-object/
    missing-field JSON, finite-value validation, normal and DoS JSON, RF-labelled SHAP,
@@ -37,7 +39,9 @@ readiness-only cases on controlled HTML, bringing the browser suite to **19 case
    cards, proportional accuracy tracks, loaded local fonts and responsive geometry.
 
 The suite checks document/main overflow, header containment, score/evidence/pill/card
-fit and an expanded desktop sidebar. It never clicks **Retrain Random Forest**.
+fit and an expanded desktop sidebar. The original four workflows never click
+**Retrain Random Forest**; the new candidate workflow explicitly does, against
+temporary synthetic data only.
 Database assertions use read-only connections; reviews are created by explicit UI
 actions only. The browser tests are outside `testpaths = ["tests"]`, so the ordinary
 unit command does not silently collect or skip them. Coverage excludes both test
@@ -238,3 +242,33 @@ $jobs.jobs | Select-Object name, status, conclusion, html_url
 
 No GitHub push, merge, CI bypass, blanket retry or fixed sleep was added. Recheck
 the existing PR's new CI run after publication before merging.
+
+## Candidate Lifecycle Follow-Up - 9 October 2026
+
+Implementation `3d0b4a5`, after merged `8c7b459`. The owner confirms the corrected
+preceding PR passed CI and merged; this new branch still requires its own CI.
+
+- `browser_tests/test_candidates.py` adds a fifth workflow at all four widths.
+  It generates five real UI alert tickets/reviews, trains a candidate, verifies
+  unchanged active selection, requires operator plus unchecked confirmation, then
+  promotes and rolls back. Read-only SQLite assertions verify pointer generations,
+  previous selection and exact two action records; model/report writes stay isolated.
+- A registered marker enables a six-row synthetic evaluation file with all five
+  families before server startup. The four original workflows keep their original
+  three-row fixture. The manifest records actual row counts and hashes for both.
+  Repeated separable patterns are functional fixtures, not independent quality data.
+- The original review/cohort browser case now expects retraining disabled with one
+  eligible correction; this is intentional enforcement of the five-correction policy,
+  not weakened browser coverage. Startup hydration/ownership checks remain unchanged.
+- Native confirmation uses keyboard Space and the visible checkbox label with
+  checked-state assertions. Direct clicks on its hidden input timed out in the initial
+  run; no forced clicks, DOM edits, fixed sleeps or blanket retry were introduced.
+- Clean exported commit: **23 passed in 430.66 seconds**, zero failures/errors/skips.
+  Twenty console diagnostic reports have no page errors/external HTTP. Candidate
+  screenshots inspected at all four widths; geometry/confirmation/action checks pass.
+- **278 unit/AppTest cases**, 82.85% local / 82.57% clean coverage over 2,542 runtime
+  statements and unchanged 70% floor. Black checks 44 files; flake8/pip/diff checks pass.
+  Local Windows Python 3.13 remains outside CI's supported Python 3.10-3.12 range.
+
+See [candidate governance](candidate_governance.md) for the exact executed commands,
+CLI migration, trusted-local boundary and independent quality/identity limitations.

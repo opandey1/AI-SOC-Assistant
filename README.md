@@ -22,7 +22,7 @@ An explainable AI triage pipeline that classifies NSL-KDD network connections in
 - **Dual-model triage:** A Random Forest predicts the attack family while an Isolation Forest adds an unsupervised anomaly signal for suspicious traffic patterns.
 - **Explainable evidence:** SHAP identifies the strongest feature drivers for each flagged connection and passes analyst-readable values into the ticket.
 - **Live analyst workflow:** Delayed replay and Kafka-compatible ingestion feed the same classifier, SHAP explainer, SQLite review queue, and Streamlit console.
-- **Human-in-the-loop learning:** Reviewed false positives become weighted correction examples in a versioned Random Forest artifact.
+- **Human-in-the-loop learning:** Reviewed corrections train separate, provenance-linked candidates; an evaluation check, explicit promotion and rollback control local model selection.
 - **Local-first GenAI:** Deterministic template mode makes no network calls. Ollama keeps the LLM prompt on the configured local server, and external threat-intelligence lookups are disabled unless explicitly enabled.
 - **Operational output:** The final response is a structured incident ticket with containment steps and copy-pasteable Splunk SPL queries.
 
@@ -124,7 +124,11 @@ streamlit run streamlit_app.py
 
 ![AI-SOC-Assistant analyst console showing a flagged DoS connection, its SHAP drivers, and the generated incident ticket](docs/console_triage.png)
 
-The console reads the same NSL-KDD files, persists alert tickets to `state/soc_feedback.db`, and automatically offers `models/soc_model.joblib` after feedback retraining.
+The console reads the same NSL-KDD files and persists alert tickets to `state/soc_feedback.db`.
+Feedback runs save separate bundles under `models/registry/`; only explicit promotion
+changes its selected artifact. The sidebar still defaults to Baseline. Existing
+`models/soc_model.joblib` is supported as a trusted local legacy artifact until the
+first promotion, which preserves a separate rollback snapshot.
 
 The interface is built on a small design system in [`src/ui.py`](src/ui.py): a single token set defines the surfaces, the five attack-family colours, and the type ramp, and every rendered value is HTML-escaped because source IPs, event ids, and SHAP feature names reach the DOM. SHAP drivers render as signed contribution bars normalised to the largest-magnitude driver and labelled `SUPPORTS`, `OPPOSES`, or `NEUTRAL`; raw SHAP floats stay in the scoring-details expander and never enter the ticket.
 
@@ -159,22 +163,42 @@ The Kafka topic uses a documented JSON envelope containing event metadata plus a
 
 ### Analyst feedback and retraining
 
-Review tickets from the console or CLI, then update the Random Forest:
+Review tickets from the console or CLI, then train a candidate (five eligible corrections required by default):
 
 ```bash
 python -m src.feedback list --state unreviewed
 python -m src.feedback review 1 --disposition false_positive --corrected-class normal
 python -m src.retrain
-python -m src.streaming replay --model models/soc_model.joblib --limit 10 --delay 0
+python -m src.model_registry list
 ```
 
-Reviews are append-only for auditability. Retraining leaves the Isolation Forest fixed, gives reviewed corrections an explicit sample weight, writes an atomic/versioned model artifact, and reports both correction behavior and whole-test metrics. The validated example changed a ground-truth normal row from `probe` to `normal`, raising corrected-class probability from **2.83% to 50.22%**; see the [feedback update report](docs/evaluation/feedback_retraining/metrics.md).
+Reviews are append-only. Within each run, RF baseline and candidate share an Isolation
+Forest fitted from the original training data; feedback updates the RF only. Weights
+must be finite, positive and at most 60.0. This is a per-example bound, not a
+per-analyst influence cap. Candidates must not regress RF accuracy, fixed-five-class
+macro F1 or any class recall against the fresh baseline and, when present, the
+registry-selected artifact on the supplied evaluation file. Missing evaluation
+classes and altered bundles fail closed. Passing is not production certification
+or independent benchmark validation.
+
+Model Operations offers candidate reports, explicit operator/confirmation controls
+and selection history. Equivalent CLI promotion/rollback commands, migration from
+the old `--output`/`--report` flags, provenance details and limitations are in the
+[candidate governance guide](docs/candidate_governance.md). Streaming/other CLI callers
+still use an explicitly supplied `--model` path; the registry does not silently change them.
+
+The historical single-correction example changed a normal row from `probe` to
+`normal`, raising corrected-class probability from **2.83% to 50.22%**; see its dated
+[feedback update report](docs/evaluation/feedback_retraining/metrics.md). It predates
+the default five-correction policy and is not candidate acceptance evidence.
 
 The [real-retraining regression tests](docs/retraining_testing.md) exercise training,
 review eligibility, weighting, artifact reloads and failed-write safety using isolated
 synthetic fixtures. These are functional checks, not model-quality benchmarks. A
 class absent from the baseline has zero corrected-class probability rather than
-causing a lookup failure. Candidate acceptance and promotion gates remain absent.
+causing a lookup failure. New lifecycle tests cover candidate rejection, integrity,
+stale/concurrent actions and transactional selection/rollback. Independent quality
+benchmarks, authenticated identity, analyst consensus and influence budgets remain open.
 
 ### External dataset benchmark
 

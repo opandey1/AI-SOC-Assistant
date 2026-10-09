@@ -69,6 +69,11 @@ def _row(label: str, duration: int = 0) -> str:
     return ",".join(fields)
 
 
+@pytest.fixture(autouse=True)
+def isolated_model_registry(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOC_MODEL_REGISTRY", str(tmp_path / "registry"))
+
+
 @pytest.fixture
 def app_workspace(tmp_path, monkeypatch):
     """Run the app from a directory containing a minimal NSL-KDD dataset.
@@ -675,7 +680,9 @@ def test_feedback_slider_value_is_passed_to_retraining(
     app_workspace, isolated_review_store, monkeypatch
 ):
     store = isolated_review_store
-    store.feedback_examples.return_value = [FeedbackExample(7, "event-7", {}, "normal")]
+    store.feedback_examples.return_value = [
+        FeedbackExample(i, f"event-{i}", {}, "normal") for i in range(7, 12)
+    ]
     store.list_tickets.return_value = [
         SimpleNamespace(id=7, event_id="event-7", predicted_class="probe", corrected_class="normal")
     ]
@@ -696,10 +703,22 @@ def test_feedback_slider_value_is_passed_to_retraining(
         updated_macro_f1=0.4,
         output_model="test-only.joblib",
     )
-    retrain = Mock(return_value=report)
-    save = Mock()
-    monkeypatch.setattr("src.retrain.retrain_from_feedback", retrain)
-    monkeypatch.setattr("src.retrain.save_report", save)
+    from dataclasses import asdict
+    from src.model_registry import ModelRegistry
+
+    candidate = dict(
+        id="a" * 32,
+        created_at=report.trained_at,
+        accepted=True,
+        reasons=[],
+        kind="feedback",
+        parent_generation=0,
+    )
+    current = []
+    retrain = Mock(side_effect=lambda **kwargs: current.append(candidate))
+    monkeypatch.setattr(ModelRegistry, "create_candidate", retrain)
+    monkeypatch.setattr(ModelRegistry, "candidates", lambda self: current)
+    monkeypatch.setattr(ModelRegistry, "report", lambda self, _id: asdict(report))
     app = _run()
     app.segmented_control[0].set_value("Model").run()
     _assert_clean(app, "reviewed Model operations")
@@ -713,9 +732,9 @@ def test_feedback_slider_value_is_passed_to_retraining(
     _assert_clean(app, "mocked retraining")
     retrain.assert_called_once()
     assert retrain.call_args.kwargs["feedback_weight"] == 12.5
-    save.assert_called_once()
-    assert save.call_args.args[0] == report
     assert app.session_state.last_retrain_report["feedback_weight"] == 12.5
+    assert app.button(key="promote_candidate").disabled
+    assert "active model unchanged" in app.status[0].label
 
 
 def test_retrained_model_warning_remains_visible(
@@ -725,7 +744,131 @@ def test_retrained_model_warning_remains_visible(
     app.sidebar.segmented_control[0].set_value("Retrained").run()
     app.segmented_control[0].set_value("Model").run()
     _assert_clean(app, "active Retrained Model operations")
-    assert any("replaces the model currently in use" in warning.value for warning in app.warning)
+    assert any(
+        "Candidate training leaves the selected artifact unchanged" in warning.value
+        for warning in app.warning
+    )
+
+
+@pytest.mark.parametrize("count", [1, 4, 5])
+def test_cohort_minimum_is_reflected_in_model_action(app_workspace, isolated_review_store, count):
+    isolated_review_store.feedback_examples.return_value = [
+        FeedbackExample(i, f"event-{i}", {}, "normal") for i in range(count)
+    ]
+    app = _run()
+    app.segmented_control[0].set_value("Model").run()
+    _assert_clean(app, "cohort policy")
+    assert app.button(key="retrain_model").disabled is (count < 5)
+
+
+@pytest.fixture
+def candidate_view(app_workspace, isolated_review_store, monkeypatch):
+    from src.model_registry import ModelRegistry
+
+    state = dict(active=None, previous=None, generation=0)
+    candidate = dict(
+        id="a" * 32,
+        kind="feedback",
+        created_at="2026-10-09T00:00:00Z",
+        accepted=True,
+        reasons=[],
+        parent_generation=0,
+    )
+    report = dict(
+        model_version="synthetic-candidate",
+        feedback_examples=5,
+        feedback_corrected_before=5,
+        feedback_corrected_after=5,
+        baseline_macro_f1=1.0,
+        updated_macro_f1=1.0,
+    )
+
+    def promote(_id, **kwargs):
+        state.update(active=candidate["id"], generation=1)
+
+    promotion = Mock(side_effect=promote)
+    rollback = Mock(
+        side_effect=lambda **kwargs: state.update(
+            active=None, previous=candidate["id"], generation=2
+        )
+    )
+    monkeypatch.setattr(ModelRegistry, "state", lambda self: state.copy())
+    monkeypatch.setattr(ModelRegistry, "active_path", lambda self: None)
+    monkeypatch.setattr(ModelRegistry, "candidates", lambda self: [candidate])
+    monkeypatch.setattr(ModelRegistry, "report", lambda self, _id: report)
+    monkeypatch.setattr(ModelRegistry, "history", lambda self: [])
+    monkeypatch.setattr(ModelRegistry, "promote", promotion)
+    monkeypatch.setattr(ModelRegistry, "rollback", rollback)
+    return SimpleNamespace(state=state, candidate=candidate, promotion=promotion, rollback=rollback)
+
+
+def _candidate_app():
+    app = _run()
+    app.segmented_control[0].set_value("Model").run()
+    _assert_clean(app, "candidate controls")
+    return app
+
+
+def test_promotion_requires_operator_confirmation_and_resets_after_change(candidate_view):
+    app = _candidate_app()
+    assert app.button(key="promote_candidate").disabled
+    app.checkbox[0].check().run()
+    assert app.button(key="promote_candidate").disabled
+    app.text_input(key="model_operator").set_value("alice").run()
+    assert not app.button(key="promote_candidate").disabled
+    app.button(key="promote_candidate").click().run()
+    _assert_clean(app, "promoted candidate")
+    candidate_view.promotion.assert_called_once_with("a" * 32, expected_generation=0, actor="alice")
+    assert not app.checkbox[0].value
+    assert app.button(key="promote_candidate").disabled
+    app.checkbox[0].check().run()
+    assert not app.button(key="rollback_model").disabled
+    app.button(key="rollback_model").click().run()
+    _assert_clean(app, "rolled-back candidate")
+    candidate_view.rollback.assert_called_once_with(expected_generation=1, actor="alice")
+
+
+@pytest.mark.parametrize("reason", ["rejected", "stale"])
+def test_candidate_cannot_be_promoted_from_unready_ui(candidate_view, reason):
+    if reason == "rejected":
+        candidate_view.candidate.update(accepted=False, reasons=["regressed_macro_f1"])
+    else:
+        candidate_view.state["generation"] = 1
+    app = _candidate_app()
+    app.text_input(key="model_operator").set_value("alice").run()
+    app.checkbox[0].check().run()
+    assert app.button(key="promote_candidate").disabled
+    candidate_view.promotion.assert_not_called()
+
+
+def test_selection_failure_does_not_expose_exception_payload(candidate_view, caplog):
+    candidate_view.promotion.side_effect = ValueError("secret-token=do-not-display")
+    app = _candidate_app()
+    app.text_input(key="model_operator").set_value("alice").run()
+    app.checkbox[0].check().run()
+    app.button(key="promote_candidate").click().run()
+    _assert_clean(app, "failed promotion")
+    assert "Model selection could not change" in app.error[0].value
+    assert "do-not-display" not in app.error[0].value + caplog.text
+    assert candidate_view.state["generation"] == 0
+
+
+def test_failed_candidate_fit_is_safe_and_does_not_clear_active_model(
+    app_workspace, isolated_review_store, monkeypatch, caplog
+):
+    from src.model_registry import ModelRegistry
+
+    isolated_review_store.feedback_examples.return_value = [
+        FeedbackExample(i, f"event-{i}", {}, "normal") for i in range(5)
+    ]
+    fit = Mock(side_effect=ValueError("private-payload=do-not-display"))
+    monkeypatch.setattr(ModelRegistry, "create_candidate", fit)
+    app = _candidate_app()
+    app.button(key="retrain_model").click().run()
+    _assert_clean(app, "failed candidate fit")
+    assert app.status[0].state == "error"
+    assert "do-not-display" not in app.error[0].value + caplog.text
+    assert app.session_state.last_retrain_report is None
 
 
 # Note on coverage. ``AppTest`` execs the script rather than importing it as a module, so

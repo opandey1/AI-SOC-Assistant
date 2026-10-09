@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict
+import os
+import sqlite3
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -17,7 +18,8 @@ from src import ui
 from src.feedback import CORRECTABLE_CLASSES, REVIEW_DISPOSITIONS, FeedbackStore
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resolve_dataset_paths
 from src.model_store import MODEL_ARTIFACT_FORMAT, load_model_artifact, runtime_from_artifact
-from src.retrain import retrain_from_feedback, save_report
+from src.model_registry import ModelRegistry
+from src.retrain import MINIMUM_FEEDBACK_EXAMPLES
 from src.runtime import (
     ConnectionAnalysis,
     analyze_raw_connection,
@@ -29,7 +31,7 @@ from src.streaming import ConnectionEvent, event_from_payload, replay_events
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATABASE = PROJECT_ROOT / "state" / "soc_feedback.db"
 DEFAULT_MODEL = PROJECT_ROOT / "models" / "soc_model.joblib"
-DEFAULT_RETRAIN_REPORT = PROJECT_ROOT / "state" / "retrain_report.json"
+REGISTRY_ROOT = Path(os.environ.get("SOC_MODEL_REGISTRY", PROJECT_ROOT / "models" / "registry"))
 LOGGER = logging.getLogger(__name__)
 
 # Published evaluation results (docs/evaluation/*). Reported hardest-first.
@@ -223,18 +225,26 @@ except FileNotFoundError as exc:
     st.error(str(exc), icon=":material/error:")
     st.stop()
 
+registry = ModelRegistry(REGISTRY_ROOT, legacy_model=DEFAULT_MODEL)
+try:
+    registry_state = registry.state()
+    selected_artifact = registry.active_path()
+except (ValueError, OSError, KeyError, sqlite3.Error):
+    st.error(
+        "The active model registry could not be verified. Inspect local model storage.",
+        icon=":material/error:",
+    )
+    st.stop()
+
 with st.sidebar:
     st.html(ui.section_label("SESSION"))
     model_options = ["Baseline"]
-    if DEFAULT_MODEL.exists():
+    if selected_artifact is not None:
         model_options.append("Retrained")
     model_mode = st.segmented_control(
         "Model",
         model_options,
-        # Default to the baseline so a freshly written artifact is not adopted on the
-        # next rerun. This is a default, not a promotion gate: retraining while
-        # Retrained is already selected replaces the model in use immediately, which
-        # the Model operations page states and warns about.
+        # Candidate training never changes this registry-selected artifact.
         default=model_options[0],
         width="stretch",
     )
@@ -261,7 +271,7 @@ if st.session_state.get("triage_database") != result_database:
     reset_triage_result()
     st.session_state.triage_database = result_database
 store = FeedbackStore(Path(database_value))
-active_model_path = str(DEFAULT_MODEL) if model_mode == "Retrained" else None
+active_model_path = str(selected_artifact) if model_mode == "Retrained" else None
 queue_summary = store.summary()
 
 st.html(
@@ -700,21 +710,19 @@ else:
         st.header("Model operations")
         st.caption(
             "Fold analyst-reviewed false positives into a weighted retraining run. "
-            "Retraining overwrites the single local model artifact in place and reports its "
-            "effect on the corrected rows and on KDDTest+ only; it does not evaluate a "
-            "candidate against the other protocols. There is no separate candidate artifact, "
-            "so if the sidebar is already set to Retrained the new model takes effect on the "
-            "next scored connection."
+            "Each run saves a separate candidate and reports RF results on the supplied "
+            "evaluation file. Promotion requires a passing non-regression check and explicit "
+            "confirmation; the published protocols below are not candidate re-evaluations."
         )
         if model_mode == "Retrained":
             st.warning(
-                "The sidebar is set to **Retrained**, so retraining here replaces the model "
-                "currently in use with no further confirmation. Switch to Baseline first if "
-                "you want to inspect the report before adopting the result.",
+                "The sidebar is set to **Retrained**. Candidate training leaves the selected "
+                "artifact unchanged; explicit promotion or rollback changes subsequent scores.",
                 icon=":material/warning:",
             )
 
         feedback_examples = store.feedback_examples()
+        cohort_ready = len(feedback_examples) >= MINIMUM_FEEDBACK_EXAMPLES
         st.html(
             ui.tile_row(
                 [
@@ -732,11 +740,15 @@ else:
                     ),
                     ui.tile(
                         "ARTIFACT",
-                        "Available" if DEFAULT_MODEL.exists() else "Not trained",
-                        "models/" + DEFAULT_MODEL.name,
+                        "Available" if selected_artifact else "Not promoted",
+                        (
+                            "registry-selected"
+                            if registry_state["active"]
+                            else "legacy artifact" if selected_artifact else "baseline only"
+                        ),
                         color=(
                             ui.TOKENS["status-ok"]
-                            if DEFAULT_MODEL.exists()
+                            if selected_artifact
                             else ui.TOKENS["text-tertiary"]
                         ),
                         small=True,
@@ -781,8 +793,8 @@ else:
                     st.html(
                         ui.callout(
                             "No reviewed cohort yet",
-                            "Mark at least one ticket as a false positive with a corrected class "
-                            "in the review queue to enable retraining.",
+                            f"At least {MINIMUM_FEEDBACK_EXAMPLES} eligible corrections are "
+                            "required for a candidate run.",
                             ui.TOKENS["text-tertiary"],
                         )
                     )
@@ -796,12 +808,17 @@ else:
                     key="feedback_weight",
                     disabled=not feedback_examples,
                 )
+                if feedback_examples and not cohort_ready:
+                    st.warning(
+                        f"{len(feedback_examples)} of {MINIMUM_FEEDBACK_EXAMPLES} required eligible corrections.",
+                        icon=":material/groups:",
+                    )
                 st.html(
                     ui.callout(
                         "",
-                        "A single correction changes the intended row but can reduce aggregate "
-                        "cross-distribution accuracy. Production promotion needs a larger cohort "
-                        "and a held-out acceptance gate.",
+                        "The five-correction minimum and weight limit are prototype safeguards, "
+                        "not analyst consensus. Acceptance compares RF accuracy, macro F1 and "
+                        "all five class recalls on this evaluation file, not production quality.",
                         ui.TOKENS["status-warn"],
                     )
                 )
@@ -812,7 +829,7 @@ else:
                         "Retrain Random Forest",
                         type="primary",
                         icon=":material/model_training:",
-                        disabled=not feedback_examples,
+                        disabled=not cohort_ready,
                         width="stretch",
                         key="retrain_model",
                     )
@@ -837,26 +854,99 @@ else:
                 )
 
         if retrain_clicked:
-            with st.status("Applying analyst feedback", expanded=True) as status:
+            with st.status("Training a separate candidate", expanded=True) as status:
                 status.write(f"Loading {len(feedback_examples)} reviewed false-positive event(s)")
-                report = retrain_from_feedback(
-                    database_path=Path(database_value),
-                    output_model=DEFAULT_MODEL,
-                    train_path=dataset_paths.train,
-                    test_path=dataset_paths.test,
-                    feedback_weight=feedback_weight,
-                )
-                status.write("Saving versioned model artifact")
-                save_report(report, DEFAULT_RETRAIN_REPORT)
-                st.session_state.last_retrain_report = asdict(report)
-                get_runtime.clear()
-                status.update(label="Random Forest updated", state="complete", expanded=False)
-            st.toast("Retrained model is ready", icon=":material/check_circle:")
+                try:
+                    registry.create_candidate(
+                        database_path=Path(database_value),
+                        train_path=dataset_paths.train,
+                        test_path=dataset_paths.test,
+                        feedback_weight=feedback_weight,
+                    )
+                    status.update(
+                        label="Candidate saved; active model unchanged",
+                        state="complete",
+                        expanded=False,
+                    )
+                except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+                    LOGGER.warning("candidate_failed type=%s", type(exc).__name__)
+                    status.update(label="Candidate training failed", state="error", expanded=False)
+                    st.error(
+                        "Candidate training could not complete. Check the eligible cohort, datasets and local storage."
+                    )
 
-    if st.session_state.last_retrain_report is None and DEFAULT_RETRAIN_REPORT.exists():
-        st.session_state.last_retrain_report = json.loads(
-            DEFAULT_RETRAIN_REPORT.read_text(encoding="utf-8")
-        )
+        candidates = [item for item in registry.candidates() if item["kind"] == "feedback"]
+        st.session_state.last_retrain_report = None
+        if candidates:
+            st.subheader("Candidate selection")
+            candidate_id = st.selectbox(
+                "Candidate",
+                [item["id"] for item in candidates],
+                key="candidate_selection",
+                format_func=lambda value: next(
+                    f"{item['created_at'][:19]} | {'Passed' if item['accepted'] else 'Rejected'} | {value[:8]}"
+                    for item in candidates
+                    if item["id"] == value
+                ),
+            )
+            candidate = next(item for item in candidates if item["id"] == candidate_id)
+            try:
+                st.session_state.last_retrain_report = registry.report(candidate_id)
+            except (ValueError, OSError, KeyError):
+                st.error("Candidate bundle integrity check failed. No model selection was changed.")
+                st.stop()
+            if candidate["accepted"]:
+                st.success(
+                    "Evaluation non-regression check passed; not yet production certification."
+                )
+            else:
+                st.warning("Rejected: " + ", ".join(candidate["reasons"]))
+            operator = st.text_input("Operator", key="model_operator")
+            confirmed = st.checkbox(
+                "Confirm active-model change",
+                key=f"model_confirm_{candidate_id}_{registry_state['generation']}",
+            )
+            with st.container(horizontal=True):
+                promote_clicked = st.button(
+                    "Promote candidate",
+                    icon=":material/publish:",
+                    key="promote_candidate",
+                    disabled=not (
+                        confirmed
+                        and operator.strip()
+                        and candidate["accepted"]
+                        and candidate["parent_generation"] == registry_state["generation"]
+                    ),
+                )
+                rollback_clicked = st.button(
+                    "Roll back selection",
+                    icon=":material/undo:",
+                    key="rollback_model",
+                    disabled=not (
+                        confirmed and operator.strip() and registry_state["generation"] > 0
+                    ),
+                )
+            if promote_clicked or rollback_clicked:
+                try:
+                    if promote_clicked:
+                        registry.promote(
+                            candidate_id,
+                            expected_generation=registry_state["generation"],
+                            actor=operator,
+                        )
+                    else:
+                        registry.rollback(
+                            expected_generation=registry_state["generation"], actor=operator
+                        )
+                    reset_triage_result()
+                    st.rerun()
+                except (ValueError, OSError, sqlite3.Error) as exc:
+                    LOGGER.warning("model_selection_failed type=%s", type(exc).__name__)
+                    st.error(
+                        "Model selection could not change. Refresh and inspect the candidate/reference integrity."
+                    )
+            with st.expander("Model selection history", icon=":material/history:"):
+                st.json(registry.history())
     if st.session_state.last_retrain_report:
         report = st.session_state.last_retrain_report
         delta = report["updated_macro_f1"] - report["baseline_macro_f1"]
@@ -864,7 +954,12 @@ else:
         st.html(
             ui.tile_row(
                 [
-                    ui.tile("VERSION", report["model_version"], "atomic write", small=True),
+                    ui.tile(
+                        "VERSION",
+                        report["model_version"][-12:],
+                        "full version in report",
+                        small=True,
+                    ),
                     ui.tile(
                         "CORRECTED BEFORE",
                         f"{report['feedback_corrected_before']}/{report['feedback_examples']}",

@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
 import pandas as pd
@@ -67,6 +68,7 @@ class TrainingWorkspace:
             output_model=self.output,
             train_path=self.train_path,
             test_path=self.test_path,
+            minimum_feedback_examples=1,
         )
         return retrain_from_feedback(**(options | overrides))
 
@@ -211,6 +213,7 @@ def test_real_retraining_weights_latest_reviews_and_round_trips(workspace, monke
         feedback_weight=25.0,
         random_forest_updated=True,
         isolation_forest_updated=False,
+        provenance=report.provenance,
     )
     assert loaded.feature_names == data.feature_names
     assert loaded.isolation_threshold == 0.6
@@ -344,8 +347,9 @@ def test_cli_rejects_invalid_weight(value):
 
 
 def test_main_saves_default_weight_and_matching_stdout_report(workspace, monkeypatch, capsys):
-    workspace.review(workspace.ticket())
-    report_path = workspace.root / "reports" / "main.json"
+    for index in range(5):
+        workspace.review(workspace.ticket(index=index), "dos")
+    registry_path = workspace.root / "registry"
     monkeypatch.setattr(
         sys,
         "argv",
@@ -353,10 +357,10 @@ def test_main_saves_default_weight_and_matching_stdout_report(workspace, monkeyp
             "retrain",
             "--database",
             str(workspace.store.path),
-            "--output",
-            str(workspace.output),
-            "--report",
-            str(report_path),
+            "--registry",
+            str(registry_path),
+            "--legacy-model",
+            str(workspace.root / "absent-legacy.joblib"),
             "--train",
             str(workspace.train_path),
             "--test",
@@ -364,15 +368,22 @@ def test_main_saves_default_weight_and_matching_stdout_report(workspace, monkeyp
         ],
     )
     main()
-    stdout_report, _ = json.JSONDecoder().raw_decode(capsys.readouterr().out)
+    result = json.loads(capsys.readouterr().out)
+    stdout_report = result["report"]
+    report_path = registry_path / result["candidate"]["id"] / "report.json"
     assert stdout_report == json.loads(report_path.read_text())
     assert stdout_report["feedback_weight"] == 25.0
-    assert load_model_artifact(workspace.output).model_version == stdout_report["model_version"]
+    assert (
+        load_model_artifact(Path(stdout_report["output_model"])).model_version
+        == stdout_report["model_version"]
+    )
+    assert not workspace.output.exists()
 
 
 def test_cli_runs_real_training_with_explicit_temporary_paths(workspace):
-    workspace.review(workspace.ticket())
-    report_path = workspace.root / "reports" / "cli.json"
+    for index in range(5):
+        workspace.review(workspace.ticket(index=index), "dos")
+    registry_path = workspace.root / "registry"
     result = subprocess.run(
         [
             sys.executable,
@@ -380,10 +391,10 @@ def test_cli_runs_real_training_with_explicit_temporary_paths(workspace):
             "src.retrain",
             "--database",
             str(workspace.store.path),
-            "--output",
-            str(workspace.output),
-            "--report",
-            str(report_path),
+            "--registry",
+            str(registry_path),
+            "--legacy-model",
+            str(workspace.root / "absent-legacy.joblib"),
             "--train",
             str(workspace.train_path),
             "--test",
@@ -400,10 +411,140 @@ def test_cli_runs_real_training_with_explicit_temporary_paths(workspace):
         timeout=60,
     )
     assert result.returncode == 0, result.stderr
-    stdout_report, _ = json.JSONDecoder().raw_decode(result.stdout)
+    payload = json.loads(result.stdout)
+    stdout_report = payload["report"]
+    report_path = registry_path / payload["candidate"]["id"] / "report.json"
     assert stdout_report == json.loads(report_path.read_text())
-    assert stdout_report["feedback_examples"] == 1
+    assert stdout_report["feedback_examples"] == 5
     assert stdout_report["feedback_weight"] == 12.5
     assert stdout_report["evaluation_rows"] == 10
-    assert stdout_report["output_model"] == str(workspace.output.resolve())
-    assert load_model_artifact(workspace.output).isolation_threshold == 0.6
+    assert not workspace.output.exists()
+    assert load_model_artifact(Path(stdout_report["output_model"])).isolation_threshold == 0.6
+
+
+def test_default_minimum_cohort_rejects_one_correction_before_fitting(workspace, monkeypatch):
+    workspace.review(workspace.ticket())
+    fit = Mock()
+    monkeypatch.setattr(train, "train_random_forest", fit)
+    with pytest.raises(ValueError, match="at least 5"):
+        retrain_from_feedback(
+            database_path=workspace.store.path,
+            output_model=workspace.output,
+            train_path=workspace.train_path,
+            test_path=workspace.test_path,
+        )
+    fit.assert_not_called()
+    assert not workspace.output.exists()
+
+
+@pytest.mark.parametrize("minimum", [0, -1, 1.5, True])
+def test_invalid_cohort_policy_rejected_without_io(tmp_path, minimum):
+    with pytest.raises(ValueError, match="positive integer"):
+        retrain_from_feedback(
+            database_path=tmp_path / "missing.db",
+            output_model=tmp_path / "model",
+            minimum_feedback_examples=minimum,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_weight_above_ui_limit_is_rejected_without_io(tmp_path):
+    with pytest.raises(ValueError, match="must not exceed"):
+        retrain_from_feedback(
+            database_path=tmp_path / "missing.db",
+            output_model=tmp_path / "model",
+            feedback_weight=60.1,
+        )
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--feedback-weight", "60.1"])
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("corrected_class,accepted", [("normal", False), ("dos", True)])
+def test_real_candidate_fit_is_separate_and_has_provenance(workspace, corrected_class, accepted):
+    from src.model_registry import ModelRegistry
+    from src.retrain import file_digest
+
+    for index in range(5):
+        workspace.review(workspace.ticket(index=index), corrected_class)
+    registry = ModelRegistry(workspace.root / "registry")
+    candidate = registry.create_candidate(
+        database_path=workspace.store.path,
+        train_path=workspace.train_path,
+        test_path=workspace.test_path,
+        use_smote=False,
+    )
+    assert candidate["accepted"] is accepted
+    assert registry.active_path() is None and registry.state()["generation"] == 0
+    assert not workspace.output.exists()
+    report = registry.report(candidate["id"])
+    path = Path(report["output_model"])
+    assert path.exists() and ".stage-" not in str(path)
+    artifact = load_model_artifact(path)
+    assert artifact.metadata["provenance"] == report["provenance"]
+    assert report["provenance"]["datasets"] == dict(
+        train=file_digest(workspace.train_path), test=file_digest(workspace.test_path)
+    )
+    assert len(report["provenance"]["feedback_review_ids"]) == 5
+    assert len(set(report["provenance"]["feedback_review_ids"])) == 5
+    assert report["provenance"]["code"]["source_sha256"]["src/retrain.py"] == file_digest(
+        ROOT / "src/retrain.py"
+    )
+    assert report["evaluation_support"] == dict.fromkeys(FAMILIES, 2)
+    if accepted:
+        registry.promote(candidate["id"], expected_generation=0, actor="test-operator")
+        runtime = runtime_from_artifact(load_model_artifact(registry.active_path()))
+        assert (
+            analyze_raw_connection(
+                _record("r2l"), runtime=runtime, provider="template"
+            ).model_version
+            == report["model_version"]
+        )
+        second = registry.create_candidate(
+            database_path=workspace.store.path,
+            train_path=workspace.train_path,
+            test_path=workspace.test_path,
+            use_smote=False,
+        )
+        assert second["active_reference_metrics"] is not None
+        assert second["parent_generation"] == 1
+        assert second["model_version"] != candidate["model_version"]
+    else:
+        with pytest.raises(ValueError, match="non-regression"):
+            registry.promote(candidate["id"], expected_generation=0, actor="test-operator")
+    assert not list(registry.root.glob(".stage-*"))
+
+
+def test_candidate_fit_failure_removes_stage_and_never_registers(workspace, monkeypatch):
+    from src.model_registry import ModelRegistry
+
+    for index in range(5):
+        workspace.review(workspace.ticket(index=index), "dos")
+    registry = ModelRegistry(workspace.root / "registry")
+    monkeypatch.setattr(
+        train, "train_random_forest", Mock(side_effect=RuntimeError("injected-fit"))
+    )
+    with pytest.raises(RuntimeError, match="injected-fit"):
+        registry.create_candidate(
+            database_path=workspace.store.path,
+            train_path=workspace.train_path,
+            test_path=workspace.test_path,
+        )
+    assert registry.candidates() == [] and registry.state()["generation"] == 0
+    assert not list(registry.root.iterdir())
+
+
+def test_dataset_mutation_during_fit_prevents_artifact_save(workspace, monkeypatch):
+    workspace.review(workspace.ticket())
+    original = train.train_random_forest
+
+    def mutate(data, **kwargs):
+        result = original(data, **kwargs)
+        with workspace.test_path.open("a", encoding="utf-8") as output:
+            output.write("\n")
+        return result
+
+    monkeypatch.setattr(train, "train_random_forest", mutate)
+    with pytest.raises(ValueError, match="Dataset files changed"):
+        workspace.retrain()
+    assert not workspace.output.exists()

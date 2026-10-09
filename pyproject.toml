@@ -6,6 +6,7 @@ target-version = ["py310"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["candidate_evaluation: synthetic browser evaluation includes all five families"]
 
 # source (not --cov=<module>) so files that were never executed stay in the denominator.
 # With --cov=streamlit_app, an app that no test imports is silently dropped from the
