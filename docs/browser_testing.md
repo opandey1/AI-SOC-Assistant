@@ -19,8 +19,9 @@ datasets, a running user server, cloud credentials or a saved model artifact.
 
 ## Coverage of the Browser Suite
 
-**16 parameterized cases**: four workflows at four widths, each with a fresh app,
-database and browser context.
+**16 parameterized console cases**: four workflows at four widths, each with a fresh
+app, database and browser context. The startup follow-up below adds three separate
+readiness-only cases on controlled HTML, bringing the browser suite to **19 cases**.
 
 1. **Triage / JSON:** initial icon, dataset clear with no ticket, malformed/non-object/
    missing-field JSON, finite-value validation, normal and DoS JSON, RF-labelled SHAP,
@@ -137,9 +138,10 @@ the final run above exercises durable state instead. Code/docs were edited with
 ignored `outputs/browser-qa-clean/`.
 
 See [project_status.md](project_status.md) and the append-only workspace `HANDOFF.md`.
-Remote CI cannot be run from an unpushed local commit; its first result must be
-checked after publication. Do not interpret the new workflow as evidence of an
-already passing remote job.
+At this implementation checkpoint, the commits were unpushed and no passing remote
+job was claimed. Subsequent verification of merged `82c652a` confirmed the Chromium
+job and artifact through the public GitHub API; see [the dated retraining record](retraining_testing.md).
+New changes still need their own remote run after publication.
 
 ## Limits
 
@@ -158,7 +160,81 @@ already passing remote job.
 - Native forms still do not autosave unsubmitted drafts. No production behaviour,
   Figma nodes or published evaluation figures changed. Dependency advisories remain
   untriaged; this pass does not claim remediation or a fresh vulnerability audit.
-- A fresh Chromium CI run on Linux still needs remote verification after push.
+- The first merged Chromium CI run on Linux was subsequently verified successful;
+  that result does not certify later unpushed changes.
 
 Reference guidance: [official Playwright pytest fixtures and artifact options](https://playwright.dev/python/docs/test-runners)
 and [official CI/browser-dependency setup](https://playwright.dev/python/docs/ci).
+
+## CI Startup Follow-Up - 9 October 2026
+
+The supplied `job-logs.txt` records [PR run 37907779760](https://github.com/opandey1/AI-SOC-Assistant/actions/runs/37907779760)
+on Ubuntu 24.04 / Python 3.12.15, testing merge SHA `775d1b0` (head `869c530`).
+Chromium finished **14 passed, two setup errors**, in Triage/JSON at 1440 px and
+replay at 1024 px. Both stopped at `browser_tests/conftest.py:72` before the
+workflow body/inference: the Review database textbox returned an empty string.
+`Path('').resolve()` then produced the runner checkout directory, not the expected
+temporary database. That comparison was a one-time snapshot, not a retrying assertion.
+The log is diagnostic data, not a set of commands to execute.
+
+Public API job conclusions independently confirm Python 3.10/3.11/3.12 and Docker
+passed in that run; only the browser job failed. The earlier successful baseline
+run remains historical evidence, not clearance for this later failed PR run.
+
+Commit **`767294f`** (`fix(browser): wait for review database widget hydration`)
+changes only the harness:
+
+- `support.wait_for_review_database` uses Playwright's bounded `to_have_value`
+  assertion to wait up to the existing 30-second setup budget for the **exact**
+  isolated path. `console` calls it after initial content appears, before any
+  interaction. It neither edits the widget nor assumes empty means a default path.
+- Three Chromium regressions in `browser_tests/test_startup.py` use local controlled
+  HTML: visible input whose value initializes after 300 ms, permanently empty value,
+  and incorrect value. The last two must fail within a short test timeout without
+  changing the input or creating a database. The delayed case first demonstrates
+  why the old snapshot sees the wrong path. These are not real-app/device cases.
+- Playwright stays a lazy import in this helper, preserving browser-independent
+  default unit tests. Server ownership, isolated copies, templates, browser routing,
+  teardown, existing workflow assertions and blocking CI/artifact settings are unchanged.
+
+Verification: the three focused readiness cases passed; **226 unit/AppTest tests
+passed at 81.25% coverage**, with unchanged 2,229 production statements and 70% floor.
+The clean export of `767294f` passed **all 19 Chromium cases in 284.34 seconds**:
+16 real-console workflows plus three readiness checks, zero failures/errors/skips.
+All 16 console diagnostic reports contain no page errors or external browser HTTP.
+Black (41 files), flake8, `pip check` and diff checks passed. Local verification uses
+Python 3.13.14, outside supported CI; corrected Linux CI still needs verification
+after the human publishes the new commits. No production app/model/review changes.
+
+Commands executed from the original repository:
+
+```powershell
+rg -n 'ERROR at setup|14 passed|AssertionError|Artifact download' 'C:\Users\ojasp\Downloads\job-logs.txt'
+& '.\.venv\Scripts\python.exe' -m pytest browser_tests/test_startup.py --browser chromium --tracing retain-on-failure --screenshot only-on-failure --output outputs/browser-startup-readiness --junitxml outputs/browser-startup-readiness/junit.xml
+& '.\.venv\Scripts\python.exe' -m pytest --cov --cov-report=term-missing --cov-report=json:outputs/browser-hydration-unit-coverage.json --cov-fail-under=70
+& '.\.venv\Scripts\python.exe' -m black --check streamlit_app.py src tests browser_tests scripts
+& '.\.venv\Scripts\python.exe' -m flake8 streamlit_app.py src tests browser_tests scripts
+& '.\.venv\Scripts\python.exe' -m pip check
+git diff --check
+git add -- browser_tests/conftest.py browser_tests/support.py browser_tests/test_startup.py
+git commit -m "fix(browser): wait for review database widget hydration"
+git archive --format=zip --output=outputs/browser-hydration-clean.zip HEAD
+if (Test-Path -LiteralPath 'outputs\browser-hydration-clean') { throw 'Clean-export destination already exists.' }; Expand-Archive -LiteralPath 'outputs\browser-hydration-clean.zip' -DestinationPath 'outputs\browser-hydration-clean'
+```
+
+From the clean export `outputs/browser-hydration-clean`, the browser command uses
+the original interpreter and a separate ignored output directory:
+
+```powershell
+& 'C:\Users\ojasp\Desktop\project- AI SOC Assistant\AI-SOC-Assistant\.venv\Scripts\python.exe' -m pytest browser_tests --browser chromium --tracing retain-on-failure --screenshot only-on-failure --output 'C:\Users\ojasp\Desktop\project- AI SOC Assistant\AI-SOC-Assistant\outputs\browser-hydration-qa' --junitxml 'C:\Users\ojasp\Desktop\project- AI SOC Assistant\AI-SOC-Assistant\outputs\browser-hydration-qa\junit.xml'
+```
+
+The API check used read-only structured responses:
+
+```powershell
+$jobs = Invoke-RestMethod -Uri 'https://api.github.com/repos/opandey1/AI-SOC-Assistant/actions/runs/37907779760/jobs?per_page=100' -Headers @{Accept='application/vnd.github+json'; 'User-Agent'='AI-SOC-Assistant-local-verification'}
+$jobs.jobs | Select-Object name, status, conclusion, html_url
+```
+
+No GitHub push, merge, CI bypass, blanket retry or fixed sleep was added. Recheck
+the existing PR's new CI run after publication before merging.

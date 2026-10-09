@@ -16,6 +16,7 @@ from browser_tests.support import (
     prepare_workspace,
     start_server,
     stop_server,
+    wait_for_review_database,
     write_manifest,
 )
 
@@ -69,12 +70,7 @@ def console(page: Page, app_server, case_artifacts, width):
     expect.set_options(timeout=30_000)
     page.goto(url, wait_until="domcontentloaded")
     expect(page.get_by_text("No connection scored yet", exact=True)).to_be_visible()
-    assert (
-        Path(
-            page.get_by_role("textbox", name="Review database", exact=True).input_value()
-        ).resolve()
-        == workspace.database
-    )
+    wait_for_review_database(page, workspace.database)
     expect(page.get_by_role("combobox", name="Ticket provider", exact=True)).to_have_value(
         "template"
     )

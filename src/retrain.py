@@ -51,9 +51,14 @@ def _class_probability(
     classes: np.ndarray,
     labels: np.ndarray,
 ) -> np.ndarray:
+    """Look up targets by class ID; an unseen baseline class has probability zero."""
+
     positions = {int(label): index for index, label in enumerate(classes)}
     return np.asarray(
-        [probabilities[row, positions[int(label)]] for row, label in enumerate(labels)],
+        [
+            probabilities[row, positions[int(label)]] if int(label) in positions else 0.0
+            for row, label in enumerate(labels)
+        ],
         dtype=float,
     )
 

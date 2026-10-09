@@ -108,6 +108,16 @@ def unused_port() -> int:
         return listener.getsockname()[1]
 
 
+def wait_for_review_database(page, database: Path, *, timeout: float = 30_000) -> None:
+    """Wait for the native widget's default, not just its initially empty DOM input."""
+
+    from playwright.sync_api import expect
+
+    expect(page.get_by_role("textbox", name="Review database", exact=True)).to_have_value(
+        str(database), timeout=timeout
+    )
+
+
 def wait_for_server(process: subprocess.Popen, url: str, owner: str, timeout: float = 45) -> None:
     """Require the unique workspace marker, not just another app's health endpoint."""
     deadline = time.monotonic() + timeout
