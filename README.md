@@ -252,13 +252,33 @@ Pulling an image or model requires network access. After those artifacts are pre
 ```bash
 python -m pip install pytest==8.3.4 flake8==7.1.1 black==24.10.0 \
   pytest-cov==6.0.0 pip-audit==2.7.3
-python -m black --check streamlit_app.py src tests scripts
-python -m flake8 streamlit_app.py src tests scripts
+python -m black --check streamlit_app.py src tests browser_tests scripts
+python -m flake8 streamlit_app.py src tests browser_tests scripts
 python -m pytest --cov --cov-report=term-missing --cov-fail-under=70
 ```
 
 The coverage floor is a floor, not a target: raise it as coverage improves rather than
 lowering it to make a run pass.
+
+### Browser regression tests
+
+An optional, separate Playwright suite runs the real console against temporary
+synthetic datasets and isolated SQLite databases, without copying operational
+data, saved models or secrets files.
+It covers Triage/JSON, replay, review saves and Model Operations at four widths.
+
+```bash
+python -m pip install -r requirements-browser.txt
+python -m playwright install chromium
+python -m pytest browser_tests --browser chromium --tracing retain-on-failure \
+  --screenshot only-on-failure --output outputs/browser-qa \
+  --junitxml outputs/browser-qa/junit.xml
+```
+
+The separate Chromium CI job is blocking and uploads screenshots, logs and failure
+traces. Linux uses `python -m playwright install --with-deps chromium`. These are
+functional/layout checks, not model-quality or pixel-diff benchmarks. See the
+[browser-testing design, commands and limits](docs/browser_testing.md).
 
 ### Dependency advisories
 
