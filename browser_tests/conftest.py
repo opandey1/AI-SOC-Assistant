@@ -41,8 +41,11 @@ def case_artifacts(request) -> Path:
 
 
 @pytest.fixture
-def app_server(tmp_path, case_artifacts):
-    workspace = prepare_workspace(tmp_path / "application")
+def app_server(tmp_path, case_artifacts, request):
+    workspace = prepare_workspace(
+        tmp_path / "application",
+        all_families=request.node.get_closest_marker("candidate_evaluation") is not None,
+    )
     write_manifest(workspace, case_artifacts / "fixture.json")
     process, url = start_server(workspace, case_artifacts / "server.log")
     try:

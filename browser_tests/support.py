@@ -55,7 +55,9 @@ def _dataset_row(record: dict, label: str) -> str:
     return ",".join(str(values[column]) for column in NSL_KDD_COLUMNS)
 
 
-def prepare_workspace(destination: Path, source: Path = ROOT) -> AppWorkspace:
+def prepare_workspace(
+    destination: Path, source: Path = ROOT, *, all_families: bool = False
+) -> AppWorkspace:
     """Copy only application sources/config/fonts; never copy state, models or secrets."""
     destination.mkdir(parents=True, exist_ok=False)
     shutil.copy2(source / "streamlit_app.py", destination / "streamlit_app.py")
@@ -77,6 +79,10 @@ def prepare_workspace(destination: Path, source: Path = ROOT) -> AppWorkspace:
         _dataset_row(records[family], label) for family, label in labels.items() for _ in range(16)
     ]
     test = [_dataset_row(records[family], labels[family]) for family in ("dos", "dos", "normal")]
+    if all_families:
+        test.extend(
+            _dataset_row(records[family], labels[family]) for family in ("probe", "r2l", "u2r")
+        )
     for filename, rows in (("KDDTrain+.txt", train), ("KDDTest+.txt", test)):
         (destination / "data" / filename).write_text("\n".join(rows) + "\n", encoding="utf-8")
     return AppWorkspace(destination, owner, records)
@@ -197,7 +203,11 @@ def write_manifest(workspace: AppWorkspace, destination: Path) -> None:
     paths = [workspace.root / "streamlit_app.py", *sorted((workspace.root / "src").glob("*.py"))]
     paths.extend(sorted((workspace.root / "data").glob("*.txt")))
     manifest = {
-        "fixture": "synthetic placeholders; 80 training rows, 3 replay rows; not a quality benchmark",
+        "fixture": "synthetic placeholders; not a quality benchmark",
+        "dataset_rows": {
+            path.name: len(path.read_text(encoding="utf-8").splitlines())
+            for path in (workspace.root / "data").glob("*.txt")
+        },
         "provider": "template",
         "python": sys.version,
         "sha256": {

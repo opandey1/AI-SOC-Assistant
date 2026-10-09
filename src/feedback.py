@@ -53,6 +53,7 @@ class FeedbackExample:
     event_id: str
     raw_record: dict[str, Any]
     corrected_class: str
+    review_id: int | None = None
 
 
 def _utc_now() -> str:
@@ -251,7 +252,8 @@ class FeedbackStore:
                 r.corrected_class,
                 r.analyst_notes,
                 r.reviewed_by,
-                r.created_at AS reviewed_at
+                r.created_at AS reviewed_at,
+                r.id AS review_id
             FROM tickets AS t
             LEFT JOIN reviews AS r ON r.id = (
                 SELECT latest.id
@@ -318,6 +320,7 @@ class FeedbackStore:
                 event_id=str(row["event_id"]),
                 raw_record=json.loads(row["raw_record_json"]),
                 corrected_class=str(row["corrected_class"]),
+                review_id=int(row["review_id"]),
             )
             for row in rows
         ]
