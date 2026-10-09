@@ -14,4 +14,4 @@ addopts = "-q"
 # takes the total from 72.31% to 64.86% and exits 1.
 [tool.coverage.run]
 source = ["."]
-omit = ["tests/*", "scripts/*", "notebooks/*", ".venv/*", "outputs/*", "docs/*"]
+omit = ["tests/*", "browser_tests/*", "scripts/*", "notebooks/*", ".venv/*", "outputs/*", "docs/*"]

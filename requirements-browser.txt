@@ -1,0 +1,4 @@
+# Optional test tools; never installed in the application image.
+pytest==8.3.4
+pytest-playwright==0.10.0
+playwright==1.63.0
