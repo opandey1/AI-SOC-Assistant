@@ -128,6 +128,13 @@ The console reads the same NSL-KDD files, persists alert tickets to `state/soc_f
 
 The interface is built on a small design system in [`src/ui.py`](src/ui.py): a single token set defines the surfaces, the five attack-family colours, and the type ramp, and every rendered value is HTML-escaped because source IPs, event ids, and SHAP feature names reach the DOM. SHAP drivers render as signed contribution bars normalised to the largest-magnitude driver and labelled `SUPPORTS`, `OPPOSES`, or `NEUTRAL`; raw SHAP floats stay in the scoring-details expander and never enter the ticket.
 
+Triage supports bounded dataset-row selection, validated JSON input, and delayed
+dataset replay with a retained feed. Cleared results generate no incident ticket;
+SHAP evidence is labelled for the Random Forest class even when Isolation Forest
+alone raises an alert. Submitted JSON is retained for correction, and partial
+replay failures preserve completed alert tickets. See the
+[implementation, browser evidence and commands](docs/triage_workflow_ui.md).
+
 The Review queue uses captioned native disposition cards and family-coloured
 correction pills. Reviews require an explicit disposition and a nonblank analyst
 name; only false-positive corrections feed retraining. Names remain free-text
