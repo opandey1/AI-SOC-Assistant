@@ -170,6 +170,12 @@ python -m src.streaming replay --model models/soc_model.joblib --limit 10 --dela
 
 Reviews are append-only for auditability. Retraining leaves the Isolation Forest fixed, gives reviewed corrections an explicit sample weight, writes an atomic/versioned model artifact, and reports both correction behavior and whole-test metrics. The validated example changed a ground-truth normal row from `probe` to `normal`, raising corrected-class probability from **2.83% to 50.22%**; see the [feedback update report](docs/evaluation/feedback_retraining/metrics.md).
 
+The [real-retraining regression tests](docs/retraining_testing.md) exercise training,
+review eligibility, weighting, artifact reloads and failed-write safety using isolated
+synthetic fixtures. These are functional checks, not model-quality benchmarks. A
+class absent from the baseline has zero corrected-class probability rather than
+causing a lookup failure. Candidate acceptance and promotion gates remain absent.
+
 ### External dataset benchmark
 
 Download the checksum-verified UNSW-NB15 test partition and regenerate the transfer report:

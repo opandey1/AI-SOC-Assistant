@@ -137,9 +137,10 @@ the final run above exercises durable state instead. Code/docs were edited with
 ignored `outputs/browser-qa-clean/`.
 
 See [project_status.md](project_status.md) and the append-only workspace `HANDOFF.md`.
-Remote CI cannot be run from an unpushed local commit; its first result must be
-checked after publication. Do not interpret the new workflow as evidence of an
-already passing remote job.
+At this implementation checkpoint, the commits were unpushed and no passing remote
+job was claimed. Subsequent verification of merged `82c652a` confirmed the Chromium
+job and artifact through the public GitHub API; see [the dated retraining record](retraining_testing.md).
+New changes still need their own remote run after publication.
 
 ## Limits
 
@@ -158,7 +159,8 @@ already passing remote job.
 - Native forms still do not autosave unsubmitted drafts. No production behaviour,
   Figma nodes or published evaluation figures changed. Dependency advisories remain
   untriaged; this pass does not claim remediation or a fresh vulnerability audit.
-- A fresh Chromium CI run on Linux still needs remote verification after push.
+- The first merged Chromium CI run on Linux was subsequently verified successful;
+  that result does not certify later unpushed changes.
 
 Reference guidance: [official Playwright pytest fixtures and artifact options](https://playwright.dev/python/docs/test-runners)
 and [official CI/browser-dependency setup](https://playwright.dev/python/docs/ci).
