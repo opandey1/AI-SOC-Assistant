@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -23,12 +24,13 @@ from src.runtime import (
     build_runtime,
     jsonable_record,
 )
-from src.streaming import ConnectionEvent, replay_events
+from src.streaming import ConnectionEvent, event_from_payload, replay_events
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATABASE = PROJECT_ROOT / "state" / "soc_feedback.db"
 DEFAULT_MODEL = PROJECT_ROOT / "models" / "soc_model.joblib"
 DEFAULT_RETRAIN_REPORT = PROJECT_ROOT / "state" / "retrain_report.json"
+LOGGER = logging.getLogger(__name__)
 
 # Published evaluation results (docs/evaluation/*). Reported hardest-first.
 EVALUATION_PROTOCOLS = (
@@ -111,6 +113,7 @@ def persist_alert(
 
 def show_analysis(analysis: ConnectionAnalysis, ticket_id: int | None) -> None:
     score = analysis.score
+    rf_class = str(analysis.evidence.get("rf_predicted_class", analysis.predicted_class))
     st.html(
         ui.verdict_card(
             predicted_class=analysis.predicted_class,
@@ -136,11 +139,13 @@ def show_analysis(analysis: ConnectionAnalysis, ticket_id: int | None) -> None:
                 "where lower is more anomalous.",
                 ui.TOKENS["status-warn"],
             )
-        evidence_body += ui.evidence_rows(analysis.evidence.get("top_shap_drivers", []))
+        evidence_body += ui.evidence_rows(
+            analysis.evidence.get("top_shap_drivers", []), predicted_class=rf_class
+        )
         st.html(
             ui.card(
-                "Why this was flagged",
-                "Top SHAP drivers for the predicted class, shown as real observed values.",
+                "Why this was flagged" if score.fused_anomaly else "Why this was cleared",
+                f"SHAP evidence for Random Forest class: {rf_class}.",
                 evidence_body,
             )
         )
@@ -172,10 +177,42 @@ def show_analysis(analysis: ConnectionAnalysis, ticket_id: int | None) -> None:
             )
 
 
+def show_replay_feed(rows: list[dict[str, object]], requested: int) -> None:
+    st.html(ui.panel_header("Replay feed", f"{len(rows)} processed / {requested} requested"))
+    st.dataframe(
+        pd.DataFrame(rows),
+        hide_index=True,
+        height=min(360, 44 + 35 * len(rows)),
+        column_config={
+            "Confidence": st.column_config.ProgressColumn(
+                min_value=0.0, max_value=1.0, format="percent"
+            )
+        },
+    )
+
+
+def reset_triage_result() -> None:
+    for key, value in {
+        "last_analysis": None,
+        "last_ticket_id": None,
+        "last_event": None,
+        "triage_error": None,
+        "replay_rows": [],
+        "replay_requested": 0,
+        "triage_request_mode": None,
+    }.items():
+        st.session_state[key] = value
+
+
 for key, default_value in {
     "last_analysis": None,
     "last_ticket_id": None,
     "last_retrain_report": None,
+    "last_event": None,
+    "triage_error": None,
+    "replay_rows": [],
+    "replay_requested": 0,
+    "triage_request_mode": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default_value
@@ -219,6 +256,10 @@ with st.sidebar:
         )
     )
 
+result_database = str(Path(database_value).resolve())
+if st.session_state.get("triage_database") != result_database:
+    reset_triage_result()
+    st.session_state.triage_database = result_database
 store = FeedbackStore(Path(database_value))
 active_model_path = str(DEFAULT_MODEL) if model_mode == "Retrained" else None
 queue_summary = store.summary()
@@ -234,160 +275,232 @@ view = st.segmented_control(
     "Workspace",
     ["Triage", "Review queue", "Model"],
     default="Triage",
+    required=True,
     width="stretch",
 )
 
 if view == "Triage":
-    st.header("Connection triage")
-    st.caption(
-        "Score a single connection, inspect the SHAP drivers behind the verdict, "
-        "and generate an analyst ticket."
-    )
-
-    input_mode = st.segmented_control(
-        "Input",
-        ["Dataset row", "JSON record", "Live replay"],
-        default="Dataset row",
-    )
-    source_ip = "192.0.2.47"
-    row_index = 0
-    replay_count = 5
-    replay_delay = 0.5
-    raw_json = ""
-
-    with st.form("triage_form"):
-        source_ip = st.text_input("Source IP", value=source_ip)
-        if input_mode == "Dataset row":
-            row_index = int(st.number_input("Test row", min_value=0, value=0, step=1))
-        elif input_mode == "JSON record":
-            default_record = load_raw_test_row(str(dataset_paths.test), 0)
-            raw_json = st.text_area(
-                "Connection JSON",
-                value=json.dumps(default_record, indent=2),
-                height=320,
+    with st.container(key="triage_workspace", gap=18):
+        st.header("Connection triage")
+        st.caption(
+            "NSL-KDD-shaped connection data. Only generated alert tickets enter the review queue."
+        )
+        input_mode = st.segmented_control(
+            "Input",
+            ["Dataset row", "JSON record", "Live replay"],
+            default="Dataset row",
+            required=True,
+            key="triage_input",
+        )
+        test_rows = count_rows(str(dataset_paths.test))
+        if not test_rows:
+            st.error("The test dataset contains no connection rows.", icon=":material/error:")
+            st.stop()
+        source_ip = "192.0.2.47"
+        row_index, replay_count, replay_delay, raw_json = 0, min(5, test_rows), 0.5, ""
+        if input_mode == "Live replay":
+            st.caption(
+                "Delayed NSL-KDD dataset replay, not live network telemetry. Source IPs are assigned per event."
             )
-        else:
-            with st.container(horizontal=True):
-                row_index = int(st.number_input("Start row", min_value=0, value=0, step=1))
-                replay_count = int(
-                    st.number_input("Events", min_value=1, max_value=20, value=5, step=1)
-                )
-                replay_delay = float(
+        with st.container(key="triage_controls"), st.form(f"triage_form_{input_mode}"):
+            if input_mode != "Live replay":
+                source_ip = st.text_input("Source IP", value=source_ip, key="triage_source_ip")
+            if input_mode == "Dataset row":
+                row_index = int(
                     st.number_input(
-                        "Interval (seconds)",
-                        min_value=0.0,
-                        max_value=5.0,
-                        value=0.5,
-                        step=0.1,
+                        "Test row",
+                        min_value=0,
+                        max_value=max(0, test_rows - 1),
+                        value=0,
+                        step=1,
+                        key="triage_row",
                     )
                 )
-        submitted = st.form_submit_button(
-            "Start replay" if input_mode == "Live replay" else "Analyze connection",
-            type="primary",
-            icon=":material/play_arrow:",
-        )
-
-    if submitted:
-        runtime_slot = st.container()
-        with runtime_slot, st.status("Loading detection runtime", expanded=True) as status:
-            runtime = get_runtime(
-                str(dataset_paths.train),
-                str(dataset_paths.test),
-                active_model_path,
-            )
-            status.write(f"Active model: {runtime.model_version}")
-
-            if input_mode == "Live replay":
-                feed_slot = st.empty()
-                feed_rows = []
-                last_analysis = None
-                last_ticket_id = None
-                for event in replay_events(
-                    runtime.dataset.test,
-                    start_index=row_index,
-                    limit=replay_count,
-                    delay=replay_delay,
-                ):
-                    analysis = analyze_raw_connection(
-                        event.record,
-                        runtime=runtime,
-                        source_ip=event.source_ip,
-                        provider=provider,
-                    )
-                    ticket_id = persist_alert(store, event, analysis)
-                    feed_rows.append(
-                        {
-                            "Event": event.event_id,
-                            "Source IP": event.source_ip,
-                            "Class": analysis.predicted_class,
-                            "Confidence": analysis.score.fused_confidence,
-                            "Verdict": analysis.verdict,
-                        }
-                    )
-                    feed_slot.dataframe(
-                        pd.DataFrame(feed_rows),
-                        hide_index=True,
-                        column_config={
-                            "Confidence": st.column_config.ProgressColumn(
-                                min_value=0.0,
-                                max_value=1.0,
-                                format="percent",
-                            )
-                        },
-                    )
-                    status.write(
-                        f"{event.event_id}: {analysis.predicted_class} / {analysis.verdict}"
-                    )
-                    last_analysis = analysis
-                    last_ticket_id = ticket_id
-                st.session_state.last_analysis = last_analysis
-                st.session_state.last_ticket_id = last_ticket_id
+            elif input_mode == "JSON record":
+                default_record = load_raw_test_row(str(dataset_paths.test), 0)
+                raw_json = st.text_area(
+                    "Connection JSON",
+                    value=json.dumps(default_record, indent=2),
+                    height=320,
+                    key="triage_json",
+                    persist_state="session",
+                )
             else:
-                if input_mode == "JSON record":
-                    try:
-                        record = json.loads(raw_json)
-                    except json.JSONDecodeError as exc:
-                        status.update(label="Invalid connection JSON", state="error")
-                        st.error(str(exc), icon=":material/error:")
-                        st.stop()
-                    if not isinstance(record, dict):
-                        status.update(label="Invalid connection JSON", state="error")
-                        st.error("Connection JSON must be an object.", icon=":material/error:")
-                        st.stop()
-                    event_id = f"dashboard-json-{uuid4()}"
-                    event_source = "dashboard-json"
-                else:
-                    record = load_raw_test_row(str(dataset_paths.test), row_index)
-                    event_id = f"dashboard-row-{row_index}-{uuid4()}"
-                    event_source = "dashboard-row"
-                event = ConnectionEvent(
-                    event_id=event_id,
-                    observed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    source_ip=source_ip,
-                    source=event_source,
-                    record=record,
-                )
-                analysis = analyze_raw_connection(
-                    event.record,
-                    runtime=runtime,
-                    source_ip=event.source_ip,
-                    provider=provider,
-                )
-                st.session_state.last_ticket_id = persist_alert(store, event, analysis)
-                st.session_state.last_analysis = analysis
-            status.update(label="Analysis complete", state="complete", expanded=False)
-
-    if st.session_state.last_analysis is not None:
-        show_analysis(st.session_state.last_analysis, st.session_state.last_ticket_id)
-    else:
-        st.html(
-            ui.empty_state(
-                ui.ICON_SCAN,
-                "No connection scored yet",
-                "Pick a test row, paste a connection record, or start a live replay. "
-                "The verdict, SHAP drivers and generated ticket appear here.",
+                with st.container(horizontal=True):
+                    row_index = int(
+                        st.number_input(
+                            "Start row",
+                            min_value=0,
+                            max_value=max(0, test_rows - 1),
+                            value=0,
+                            step=1,
+                            key="triage_replay_start",
+                        )
+                    )
+                    replay_count = int(
+                        st.number_input(
+                            "Events",
+                            min_value=1,
+                            max_value=20,
+                            value=max(1, replay_count),
+                            step=1,
+                            key="triage_replay_count",
+                        )
+                    )
+                    replay_delay = float(
+                        st.number_input(
+                            "Interval (seconds)",
+                            min_value=0.0,
+                            max_value=5.0,
+                            value=0.5,
+                            step=0.1,
+                            key="triage_replay_delay",
+                        )
+                    )
+            submitted = st.form_submit_button(
+                "Start replay" if input_mode == "Live replay" else "Analyze connection",
+                type="primary",
+                icon=":material/play_arrow:",
+                key="triage_submit",
             )
-        )
+
+        feed_slot = st.empty()
+        if submitted:
+            # A failed new request must not leave the previous verdict looking current.
+            reset_triage_result()
+            st.session_state.triage_request_mode = input_mode
+            st.session_state.replay_requested = replay_count if input_mode == "Live replay" else 0
+            stage = "input"
+            with st.status("Validating connection input", expanded=True) as status:
+                try:
+                    event = None
+                    if input_mode == "JSON record":
+                        record = json.loads(raw_json)
+                        if not isinstance(record, dict):
+                            raise ValueError("Connection JSON must be an object.")
+                        event = event_from_payload(
+                            {
+                                "connection": record,
+                                "source_ip": source_ip,
+                                "source": "dashboard-json",
+                                "event_id": f"dashboard-json-{uuid4()}",
+                            }
+                        )
+                    elif not 0 <= row_index < test_rows:
+                        raise IndexError("The selected row is outside the test dataset.")
+                    elif input_mode == "Dataset row":
+                        event = ConnectionEvent(
+                            event_id=f"dashboard-row-{row_index}-{uuid4()}",
+                            observed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            source_ip=source_ip,
+                            source="dashboard-row",
+                            record=load_raw_test_row(str(dataset_paths.test), row_index),
+                        )
+                    stage = "runtime"
+                    status.update(label="Loading detection runtime")
+                    runtime = get_runtime(
+                        str(dataset_paths.train), str(dataset_paths.test), active_model_path
+                    )
+                    status.write(f"Active model: {runtime.model_version}")
+                    events = (
+                        replay_events(
+                            runtime.dataset.test,
+                            start_index=row_index,
+                            limit=replay_count,
+                            delay=replay_delay,
+                        )
+                        if input_mode == "Live replay"
+                        else [event]
+                    )
+                    progress = st.progress(0.0) if input_mode == "Live replay" else None
+                    available = min(replay_count, test_rows - row_index)
+                    stage = "inference"
+                    for event in events:
+                        stage = "inference"
+                        analysis = analyze_raw_connection(
+                            event.record,
+                            runtime=runtime,
+                            source_ip=event.source_ip,
+                            provider=provider,
+                        )
+                        stage = "storage"
+                        ticket_id = persist_alert(store, event, analysis)
+                        st.session_state.last_analysis = analysis
+                        st.session_state.last_ticket_id = ticket_id
+                        st.session_state.last_event = {
+                            "id": event.event_id,
+                            "source": event.source,
+                            "source_ip": analysis.source_ip,
+                            "model": analysis.model_version,
+                        }
+                        if input_mode == "Live replay":
+                            st.session_state.replay_rows.append(
+                                {
+                                    "Event": event.event_id,
+                                    "Source IP": event.source_ip,
+                                    "Class": analysis.predicted_class,
+                                    "Confidence": analysis.score.fused_confidence,
+                                    "Verdict": analysis.verdict,
+                                }
+                            )
+                            processed = len(st.session_state.replay_rows)
+                            progress.progress(
+                                processed / available,
+                                text=f"{processed}/{available} available events",
+                            )
+                            with feed_slot.container():
+                                show_replay_feed(st.session_state.replay_rows, replay_count)
+                            status.write(
+                                f"{event.event_id}: {analysis.predicted_class} / {analysis.verdict}"
+                            )
+                    label = (
+                        f"Replay complete: {len(st.session_state.replay_rows)} of {replay_count} requested"
+                        if input_mode == "Live replay"
+                        else "Analysis complete"
+                    )
+                    status.update(label=label, state="complete", expanded=False)
+                except Exception as exc:
+                    # Do not echo internal errors, connection payloads, or provider secrets.
+                    LOGGER.warning("triage_failed stage=%s type=%s", stage, type(exc).__name__)
+                    if stage == "input" and isinstance(exc, (ValueError, IndexError)):
+                        message = f"Invalid connection input: {exc}"
+                    elif stage == "inference" and isinstance(exc, ValueError):
+                        message = "Connection could not be scored. Required feature values must be scalar and finite."
+                    else:
+                        message = "Analysis could not complete. Check the local runtime or storage configuration."
+                    st.session_state.triage_error = message
+                    status.update(
+                        label="Replay failed" if input_mode == "Live replay" else "Analysis failed",
+                        state="error",
+                        expanded=True,
+                    )
+
+        if st.session_state.replay_rows:
+            with feed_slot.container():
+                show_replay_feed(st.session_state.replay_rows, st.session_state.replay_requested)
+        if st.session_state.triage_error:
+            st.error(
+                f"{st.session_state.triage_request_mode}: {st.session_state.triage_error}",
+                icon=":material/error:",
+            )
+            if st.session_state.replay_rows:
+                st.warning(
+                    f"Replay stopped after {len(st.session_state.replay_rows)} processed event(s). Already stored alert tickets are retained; remaining events were not processed."
+                )
+        if st.session_state.last_analysis is not None:
+            context = st.session_state.last_event
+            st.caption(
+                f"Last scored event: {context['id']} | {context['source']} | {context['source_ip']} | model {context['model']}"
+            )
+            show_analysis(st.session_state.last_analysis, st.session_state.last_ticket_id)
+        else:
+            st.html(
+                ui.empty_state(
+                    ui.ICON_SCAN,
+                    "No connection scored yet",
+                    "No current verdict, SHAP evidence or incident ticket is available.",
+                )
+            )
 
 elif view == "Review queue":
     with st.container(key="review_workspace", gap=18):

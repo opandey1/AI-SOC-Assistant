@@ -23,17 +23,22 @@ these complement rather than replace the headless rendering checks.
 from __future__ import annotations
 
 
+import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import pandas as pd
 
 from streamlit.testing.v1 import AppTest
 
-from src.ingest import NSL_KDD_COLUMNS
+from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, DatasetPaths
 from src.feedback import CORRECTABLE_CLASSES, FeedbackExample, FeedbackStore, TicketRecord
 from src.retrain import RetrainingReport
+from src.runtime import ConnectionAnalysis
+from src.train import ConnectionScore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 APP = str(PROJECT_ROOT / "streamlit_app.py")  # absolute: the fixtures chdir away
@@ -46,7 +51,7 @@ INPUT_MODES = ["Dataset row", "JSON record", "Live replay"]
 _CATEGORICAL = {"protocol_type": "tcp", "service": "http", "flag": "SF"}
 
 
-def _row(label: str) -> str:
+def _row(label: str, duration: int = 0) -> str:
     """One schema-valid NSL-KDD record. Values are placeholders, not real telemetry."""
 
     fields = []
@@ -57,6 +62,8 @@ def _row(label: str) -> str:
             fields.append(label)
         elif column == "difficulty":
             fields.append("20")
+        elif column == "duration":
+            fields.append(str(duration))
         else:
             fields.append("0")
     return ",".join(fields)
@@ -113,6 +120,280 @@ def _run() -> AppTest:
 def _assert_clean(app: AppTest, context: str) -> None:
     exceptions = list(app.exception)
     assert not exceptions, f"{context} raised: {[str(e.value) for e in exceptions]}"
+
+
+@pytest.fixture
+def triage_runtime(app_workspace, isolated_review_store, monkeypatch):
+    """Exercise app orchestration without training or accessing real analyst data."""
+
+    paths = DatasetPaths(app_workspace / "data/KDDTrain+.txt", app_workspace / "data/KDDTest+.txt")
+    rows = (
+        "\n".join(
+            _row(label, duration)
+            for label, duration in (("normal", 0), ("neptune", 10), ("normal", 0))
+        )
+        + "\n"
+    )
+    paths.train.write_text(rows, encoding="utf-8")
+    paths.test.write_text(rows, encoding="utf-8")
+    frame = pd.read_csv(paths.test, names=NSL_KDD_COLUMNS)
+    runtime = SimpleNamespace(
+        dataset=SimpleNamespace(test=frame), model_version="test-triage-runtime"
+    )
+    build = Mock(return_value=runtime)
+
+    def analyze(record, *, runtime, source_ip, provider):
+        alert = bool(record["duration"])
+        return ConnectionAnalysis(
+            source_ip=source_ip,
+            raw_record=dict(record),
+            processed_record={},
+            score=ConnectionScore(
+                rf_prediction=1 if alert else 0,
+                rf_confidence=0.91,
+                rf_anomaly_confidence=0.91 if alert else 0.09,
+                isolation_score=0.1,
+                isolation_risk=0.2,
+                rf_anomaly=alert,
+                isolation_anomaly=False,
+                fused_anomaly=alert,
+                fused_confidence=0.91 if alert else 0.09,
+                alert_reason="random_forest" if alert else "none",
+            ),
+            evidence={"predicted_class": "dos" if alert else "normal", "top_shap_drivers": []},
+            ticket="**1. Incident Summary**\n\nTest-only alert" if alert else None,
+            model_version=runtime.model_version,
+        )
+
+    scorer = Mock(side_effect=analyze)
+    monkeypatch.setattr("src.ingest.resolve_dataset_paths", lambda **kwargs: paths)
+    monkeypatch.setattr("src.runtime.build_runtime", build)
+    monkeypatch.setattr("src.runtime.analyze_raw_connection", scorer)
+    isolated_review_store.log_analysis.return_value = 42
+    return SimpleNamespace(
+        build=build, scorer=scorer, store=isolated_review_store, paths=paths, frame=frame
+    )
+
+
+def _submit_triage(app: AppTest) -> AppTest:
+    app.button(key="triage_submit").click().run()
+    _assert_clean(app, "triage submission")
+    return app
+
+
+def _html(app: AppTest) -> str:
+    return " ".join(element.proto.body for element in app.get("html"))
+
+
+def test_triage_empty_state_does_not_load_runtime(triage_runtime):
+    app = _run()
+    _assert_clean(app, "initial triage")
+    assert "No connection scored yet" in _html(app)
+    assert "material-symbols-rounded" in _html(app)
+    triage_runtime.build.assert_not_called()
+    triage_runtime.store.log_analysis.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["Dataset row", "JSON record"])
+@pytest.mark.parametrize("alert", [False, True])
+def test_triage_single_connection_renders_clear_and_alert(triage_runtime, mode, alert):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value(mode).run()
+    if mode == "Dataset row":
+        app.number_input(key="triage_row").set_value(1 if alert else 0)
+    else:
+        record = triage_runtime.frame.iloc[1 if alert else 0][MODEL_INPUT_COLUMNS].to_dict()
+        app.text_area(key="triage_json").set_value(json.dumps(record))
+    _submit_triage(app)
+    assert app.session_state.last_analysis.verdict == ("alert" if alert else "normal")
+    assert ("Why this was flagged" if alert else "Why this was cleared") in _html(app)
+    assert "SHAP evidence for Random Forest class" in _html(app)
+    assert not app.error
+    if alert:
+        triage_runtime.store.log_analysis.assert_called_once()
+        assert "STORED AS TICKET #42" in _html(app)
+        assert app.get("download_button")
+    else:
+        triage_runtime.store.log_analysis.assert_not_called()
+        assert "NO TICKET GENERATED" in _html(app)
+        assert not app.get("download_button")
+    assert "test-triage-runtime" in " ".join(c.value for c in app.caption)
+
+
+@pytest.mark.parametrize(
+    "raw_json,expected",
+    [
+        ("{", "Invalid connection input"),
+        ("[]", "must be an object"),
+        ("{}", "missing required connection fields"),
+    ],
+)
+def test_invalid_json_does_not_load_runtime_and_keeps_draft(triage_runtime, raw_json, expected):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value("JSON record").run()
+    app.text_area(key="triage_json").set_value(raw_json)
+    _submit_triage(app)
+    assert expected in app.error[0].value
+    assert app.status[0].state == "error"
+    assert app.text_area(key="triage_json").value == raw_json
+    app.run()
+    assert expected in app.error[0].value
+    assert app.session_state.last_analysis is None
+    triage_runtime.build.assert_not_called()
+    triage_runtime.scorer.assert_not_called()
+    triage_runtime.store.log_analysis.assert_not_called()
+
+
+def test_new_invalid_request_clears_previous_verdict(triage_runtime):
+    app = _submit_triage(_run())
+    assert app.session_state.last_analysis is not None
+    app.segmented_control(key="triage_input").set_value("JSON record").run()
+    app.text_area(key="triage_json").set_value("[]")
+    _submit_triage(app)
+    assert app.session_state.last_analysis is None
+    assert "NO TICKET GENERATED" not in _html(app)
+    assert "No connection scored yet" in _html(app)
+
+
+@pytest.mark.parametrize("failure_stage", ["runtime", "inference", "storage"])
+def test_triage_internal_failure_is_safe_and_retryable(triage_runtime, failure_stage, caplog):
+    target = {
+        "runtime": triage_runtime.build,
+        "inference": triage_runtime.scorer,
+        "storage": triage_runtime.store.log_analysis,
+    }[failure_stage]
+    original = target.side_effect
+    target.side_effect = RuntimeError("secret-token=do-not-display")
+    app = _run()
+    app.number_input(key="triage_row").set_value(1)
+    _submit_triage(app)
+    assert app.status[0].state == "error"
+    assert "could not complete" in app.error[0].value
+    assert "do-not-display" not in app.error[0].value + caplog.text
+    assert app.session_state.last_analysis is None
+    assert f"stage={failure_stage}" in caplog.text
+    target.side_effect = original
+    _submit_triage(app)
+    assert not app.error
+    assert app.status[0].state == "complete"
+
+
+def test_triage_validation_error_is_not_an_app_exception(triage_runtime):
+    triage_runtime.scorer.side_effect = ValueError("unsafe raw payload")
+    app = _submit_triage(_run())
+    assert "scalar and finite" in app.error[0].value
+    assert "unsafe raw payload" not in app.error[0].value
+    triage_runtime.store.log_analysis.assert_not_called()
+
+
+def test_isolation_only_alert_keeps_shap_tied_to_rf_normal(triage_runtime):
+    analysis = triage_runtime.scorer.side_effect(
+        {"duration": 0},
+        runtime=SimpleNamespace(model_version="test-triage-runtime"),
+        source_ip="192.0.2.47",
+        provider="template",
+    )
+    triage_runtime.scorer.side_effect = None
+    triage_runtime.scorer.return_value = replace(
+        analysis,
+        score=replace(
+            analysis.score,
+            isolation_anomaly=True,
+            fused_anomaly=True,
+            alert_reason="isolation_forest",
+        ),
+        evidence={
+            "predicted_class": "anomaly",
+            "rf_predicted_class": "normal",
+            "top_shap_drivers": [],
+        },
+        ticket="Test-only ISO alert",
+    )
+    app = _submit_triage(_run())
+    assert "SHAP evidence for Random Forest class: normal" in _html(app)
+    assert "Isolation Forest signal" in _html(app)
+    assert "Normal verdict" not in _html(app)
+    triage_runtime.store.log_analysis.assert_called_once()
+
+
+def test_json_draft_survives_input_mode_change(triage_runtime):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value("JSON record").run()
+    app.text_area(key="triage_json").set_value('{"duration": 123}')
+    _submit_triage(app)
+    app.segmented_control(key="triage_input").set_value("Dataset row").run()
+    app.segmented_control(key="triage_input").set_value("JSON record").run()
+    assert app.text_area(key="triage_json").value == '{"duration": 123}'
+
+
+def test_live_replay_persists_feed_and_only_stores_alerts(triage_runtime):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value("Live replay").run()
+    assert not app.main.text_input, "Source IP is assigned by replay, not this form"
+    app.number_input(key="triage_replay_count").set_value(3)
+    app.number_input(key="triage_replay_delay").set_value(0.0)
+    _submit_triage(app)
+    assert len(app.dataframe[0].value) == 3
+    assert list(app.dataframe[0].value["Verdict"]) == ["normal", "alert", "normal"]
+    triage_runtime.store.log_analysis.assert_called_once()
+    assert app.session_state.last_analysis.verdict == "normal"
+    assert app.status[0].state == "complete"
+    app.run()
+    assert len(app.dataframe[0].value) == 3
+    assert "3 processed / 3 requested" in _html(app)
+    assert triage_runtime.scorer.call_count == 3
+
+
+def test_live_replay_end_of_dataset_reports_actual_count(triage_runtime):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value("Live replay").run()
+    app.number_input(key="triage_replay_start").set_value(2)
+    app.number_input(key="triage_replay_count").set_value(5)
+    app.number_input(key="triage_replay_delay").set_value(0.0)
+    _submit_triage(app)
+    assert len(app.dataframe[0].value) == 1
+    assert "1 of 5 requested" in app.status[0].label
+    assert app.get("progress")[0].proto.value == 100
+
+
+def test_partial_replay_retains_only_completed_events(triage_runtime):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value("Live replay").run()
+    app.number_input(key="triage_replay_start").set_value(1)
+    app.number_input(key="triage_replay_count").set_value(2)
+    app.number_input(key="triage_replay_delay").set_value(0.0)
+    analyze = triage_runtime.scorer.side_effect
+    triage_runtime.scorer.side_effect = lambda record, **kwargs: (
+        analyze(record, **kwargs)
+        if record["duration"]
+        else (_ for _ in ()).throw(RuntimeError("failure"))
+    )
+    _submit_triage(app)
+    assert app.status[0].state == "error"
+    assert len(app.dataframe[0].value) == 1
+    assert "stopped after 1 processed event" in app.warning[0].value
+    assert app.session_state.last_analysis.verdict == "alert"
+    triage_runtime.store.log_analysis.assert_called_once()
+    app.run()
+    assert len(app.dataframe[0].value) == 1
+    assert app.error and app.warning
+
+
+def test_database_change_clears_result_and_replay_feed(triage_runtime):
+    app = _submit_triage(_run())
+    app.sidebar.text_input[0].set_value("other-synthetic.db").run()
+    _assert_clean(app, "database switch")
+    assert app.session_state.last_analysis is None
+    assert not app.session_state.replay_rows
+
+
+def test_empty_test_dataset_halts_before_runtime_load(triage_runtime):
+    triage_runtime.paths.test.write_text("", encoding="utf-8")
+    app = _run()
+    _assert_clean(app, "empty dataset")
+    assert "contains no connection rows" in app.error[0].value
+    assert not app.button
+    triage_runtime.build.assert_not_called()
 
 
 def test_app_starts_without_raising(app_workspace):

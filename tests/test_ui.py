@@ -154,3 +154,25 @@ def test_review_empty_state_uses_the_existing_icon_font_not_sanitised_svg():
     assert 'aria-hidden="true"' in rendered
     assert "view_list" in rendered
     assert "<svg" not in rendered
+
+
+def test_triage_empty_state_icon_survives_html_sanitisation():
+    rendered = ui.empty_state(ui.ICON_SCAN, "No connection scored yet", "No current verdict")
+    assert 'class="material-symbols-rounded"' in rendered
+    assert "search_check" in rendered
+    assert "<svg" not in rendered
+
+
+def test_shap_support_colour_tracks_rf_class_not_fused_alert_severity():
+    drivers = [
+        {
+            "feature": "src_bytes",
+            "true_value": 10,
+            "shap_value": 0.1,
+            "direction": "supports normal",
+        }
+    ]
+    rendered = ui.evidence_rows(drivers, predicted_class="normal")
+    assert ui.family_color("normal") in rendered
+    assert "SUPPORTS" in rendered
+    assert ui.TOKENS["status-alert"] not in rendered

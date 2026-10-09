@@ -376,6 +376,27 @@ code, pre, kbd, samp {{ font-family: var(--soc-mono) !important; }}
 .st-key-review_corrected_class button:focus-visible {{
     outline: 2px solid var(--soc-accent-hover); outline-offset: 2px;
 }}
+/* Triage keeps native controls and separates RF evidence from the fused verdict. */
+.st-key-triage_workspace {{ letter-spacing: 0; }}
+.st-key-triage_workspace h2 {{ font-size: 22px; line-height: 28px; padding: 0; }}
+.st-key-triage_workspace .soc-verdict,
+.st-key-triage_workspace .soc-card,
+.st-key-triage_workspace .soc-empty,
+.st-key-triage_controls [data-testid="stForm"] {{ border-radius: 8px; }}
+.st-key-triage_workspace .soc-empty {{ min-height: 200px; box-sizing: border-box; }}
+.st-key-triage_workspace .soc-verdict-head {{ flex-wrap: wrap; gap: 10px; }}
+.st-key-triage_workspace .soc-scores {{
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px;
+}}
+.st-key-triage_workspace .soc-score {{ background: transparent; border: 0; padding: 0; }}
+.st-key-triage_workspace .soc-score-label,
+.st-key-triage_workspace .soc-score-value,
+.st-key-triage_workspace .soc-verdict-headline .k,
+.st-key-triage_workspace .soc-verdict-headline .v,
+.st-key-triage_workspace .soc-card-title {{ letter-spacing: 0; }}
+.st-key-triage_workspace .soc-evidence-head {{ flex-wrap: wrap; }}
+.st-key-triage_workspace .soc-evidence-value {{ max-width: 100%; overflow-wrap: anywhere; }}
+.st-key-triage_json textarea {{ font-family: var(--soc-mono); font-size: 12px; }}
 @media (max-width: 1100px) {{
     .st-key-model_split [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
     .st-key-model_split [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
@@ -386,24 +407,30 @@ code, pre, kbd, samp {{ font-family: var(--soc-mono) !important; }}
     .st-key-review_workspace [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
         width: 100%; flex: 1 1 100%;
     }}
+    .st-key-triage_workspace [data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+    .st-key-triage_workspace [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {{
+        width: 100%; flex: 1 1 100%;
+    }}
+    .st-key-triage_workspace .soc-scores {{ grid-template-columns: 1fr; }}
 }}
 @media (max-width: 480px) {{
-    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-topbar {{
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace, .st-key-triage_workspace) .soc-topbar {{
         flex-wrap: wrap; gap: 8px;
     }}
-    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-brand {{
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace, .st-key-triage_workspace) .soc-brand {{
         width: 100%;
     }}
-    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-brand-name {{
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace, .st-key-triage_workspace) .soc-brand-name {{
         white-space: nowrap;
     }}
-    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-topbar-spacer {{
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace, .st-key-triage_workspace) .soc-topbar-spacer {{
         display: none;
     }}
-    .block-container:has(.st-key-model_operations, .st-key-review_workspace) .soc-runtime {{
+    .block-container:has(.st-key-model_operations, .st-key-review_workspace, .st-key-triage_workspace) .soc-runtime {{
         width: 100%; flex-wrap: wrap;
     }}
-    .block-container:has(.st-key-review_workspace) .soc-topbar {{ padding-left: 36px; }}
+    .block-container:has(.st-key-review_workspace, .st-key-triage_workspace) .soc-topbar {{ padding-left: 36px; }}
+    .st-key-triage_workspace .soc-verdict-headline {{ flex-basis: 100%; margin-left: 0; text-align: left; }}
     .st-key-review_workspace .soc-tile-row {{
         display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
     }}
@@ -646,7 +673,9 @@ def verdict_card(
     )
 
 
-def evidence_rows(drivers: Sequence[Mapping[str, Any]]) -> str:
+def evidence_rows(
+    drivers: Sequence[Mapping[str, Any]], *, predicted_class: str | None = None
+) -> str:
     """Render SHAP drivers as signed contribution bars, largest magnitude first."""
 
     if not drivers:
@@ -663,7 +692,11 @@ def evidence_rows(drivers: Sequence[Mapping[str, Any]]) -> str:
         colour = (
             TOKENS["text-tertiary"]
             if neutral
-            else (TOKENS["status-alert"] if supports else TOKENS["status-info"])
+            else (
+                (family_color(predicted_class) if predicted_class else TOKENS["status-alert"])
+                if supports
+                else TOKENS["status-info"]
+            )
         )
         tag = "NEUTRAL" if neutral else ("SUPPORTS" if supports else "OPPOSES")
         value = driver.get("true_value")
@@ -706,12 +739,8 @@ def empty_state(icon_svg: str, title: str, body: str) -> str:
 
 
 ICON_SCAN = (
-    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" '
-    'xmlns="http://www.w3.org/2000/svg">'
-    '<circle cx="11" cy="11" r="7" stroke="#6B7688" stroke-width="1.6"/>'
-    '<path d="M16.5 16.5 21 21" stroke="#6B7688" stroke-width="1.6" stroke-linecap="round"/>'
-    '<path d="M8.4 11.2l2 2 4-4.2" stroke="#6B7688" stroke-width="1.6" '
-    'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    '<span class="material-symbols-rounded" aria-hidden="true" '
+    'style="font-size:26px;line-height:1;color:#6B7688">search_check</span>'
 )
 
 # Streamlit 1.60's HTML sanitiser strips inline SVG; reuse its loaded icon font.
