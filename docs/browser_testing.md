@@ -272,3 +272,41 @@ preceding PR passed CI and merged; this new branch still requires its own CI.
 
 See [candidate governance](candidate_governance.md) for the exact executed commands,
 CLI migration, trusted-local boundary and independent quality/identity limitations.
+
+## Feedback Governance Follow-Up - 9 October 2026
+
+Runtime implementation `9fb0858`, browser follow-up `ca44e3f`, after merged
+`c88f18a`. The owner confirms the preceding candidate PR passed CI; this new branch
+still requires fresh remote verification.
+
+- The four candidate workflows now generate five first reviews and verify that
+  one label cannot enable retraining. A second label agrees on all five, changes
+  one class to produce conflict holdout, then resolves it. Real candidate fitting,
+  explicit promotion and rollback follow, with 12 exact review records and two
+  selection-history records verified in isolated SQLite.
+- Saved reviewer labels alone are not action-unique. Review detail now exposes the
+  exact latest review ID, and tests await the selected ticket and its saved ID.
+  Native `row_height=35` aligns the production queue with its existing layout
+  arithmetic and the row-selection harness; a unit assertion covers the setting.
+- Audit-panel download names include a native Material icon prefix. Tests match
+  the command label appropriately, await panel containment before screenshots,
+  and exclude stale button ancestors during reruns. Earlier failures exposed these
+  readiness issues; no forced clicks, blanket retries, fixed sleeps, loosened
+  timeouts or weakened geometry/confirmation assertions were introduced.
+- Clean exported `ca44e3f`: **23 passed in 366.74 seconds**, zero failures/errors/
+  skips. Twenty console reports have zero page errors or blocked external browser
+  HTTP. Final candidate screenshots inspected at 1440/1024/390/320 pixels.
+- **326 unit/AppTest cases** pass locally (83.72%) and clean (83.57%), across 2,697
+  runtime statements with the unchanged 70% floor. Black checks 46 files; flake8,
+  pip check and diff checks pass. Python 3.13.14 remains outside supported CI.
+- All final test servers stop on teardown. An interrupted diagnostic run left an
+  isolated server; its ownership nonce, temporary directory, port and process
+  tree were verified before targeted cleanup. User previews were not stopped.
+
+The suite uses synthetic functional fixtures and is not independent quality,
+identity, poisoning-prevention, accessibility or pixel-diff certification.
+Peer agreement is not correctness; caps constrain explicit RF sample weights,
+not combined `class_weight="balanced"` mass or causal influence. G2/G4 remain
+partial and G5 remains open. Figma nodes, operational reviews/models and published
+metrics were not changed. See [feedback governance](feedback_governance.md) for
+task descriptions, formulas, migration limits and exact executed commands.
