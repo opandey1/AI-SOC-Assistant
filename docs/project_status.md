@@ -1,22 +1,23 @@
 # Project Status and Verification
 
-Snapshot: **9 October 2026**, following merged `8c7b459` and local candidate-first
-implementation `3d0b4a5` on `codex/candidate-governance`.
+Snapshot: **9 October 2026**, following merged `c88f18a` and local feedback
+agreement/influence implementation on `codex/feedback-influence-governance`.
 This is a dated evidence record, not a claim that every roadmap item is complete.
 
 ## Verification Snapshot
 
 | Check | Evidence | Scope / limitation |
 |---|---|---|
-| Unit/AppTest tests | 278 passed locally (82.85%) and in clean export 3d0b4a5 (82.57%); 70% floor enforced | 52 new cases. Production denominator grows from 2,229 to 2,542 statements with the registry/policy/UI code; app/registry 96%, retraining 98% local / 95% clean, model-store 100% statements, not semantic completeness. 924 dependency warnings remain. |
-| Local tools | Python 3.13.14; pytest 8.3.4; Black (44 files), flake8 and pip check pass | Python 3.13 is outside the supported CI matrix, not a newly certified version. |
-| GitHub Actions | Owner confirms corrected retraining/browser PR CI passed and merged; local `main`/`origin/main` agree at `8c7b459` | Earlier startup failure is resolved in the merge. No fresh remote result is claimed for this new candidate branch; it must pass its own Python/Chromium/container checks before merging. |
+| Unit/AppTest tests | 326 passed locally (83.72%) and in clean export ca44e3f (83.57%); 70% floor enforced | 48 new cases. Runtime denominator grows from 2,542 to 2,697 statements; policy 100%, app/registry 96%, retraining 98% local / 96% clean, model-store 100% statements, not semantic completeness. 924 dependency warnings remain. |
+| Local tools | Python 3.13.14; pytest 8.3.4; Black (46 files), flake8 and pip check pass | Python 3.13 is outside the supported CI matrix, not a newly certified version. |
+| GitHub Actions | Owner confirms candidate-governance PR CI passed and merged; local baseline `main`/`origin/main` agree at `c88f18a` | This is owner-provided CI evidence. The new feedback-governance branch must pass its own Python/Chromium/container checks before merging; nothing was pushed by the agent. |
 | Real feedback retraining | 30 focused retraining/persistence cases passed, including 25 newly added retraining cases | Actual RF/ISO/preprocessing/SQLite and artifact-consuming SHAP runtime execute on tiny synthetic fixtures. Missing-class probability lookup fixed. Weighting/latest-review eligibility, metrics, report/CLI integration and tested failed-fit/writer preservation verified. Not E3 quality gating or G3 candidate governance. See [implementation and commands](retraining_testing.md). |
 | Candidate lifecycle | 278 unit/AppTest cases passed locally and clean; four real browser lifecycle cases passed from clean export | Minimum cohort, separate complete bundles, RF non-regression against original/selected references, file hashes, explicit confirmation, stale/concurrent actions, transactional pointer/history and rollback. Tests use synthetic temporary data, not independent quality evidence. See [scope, migration and commands](candidate_governance.md). |
+| Feedback governance | 326 unit/AppTest cases pass locally and clean; real browser flows pass at 1440/1024/390/320 px | Latest-per-label consensus, conflict holdout/resolution, explicit sample-weight budgets, audit/review IDs and stale-review promotion checks/locking. Labels remain unauthenticated; combined RF class-weight/prior governance and ground-truth bias analysis remain open. See [implementation and commands](feedback_governance.md). |
 | Model Operations browser QA | 1440, 1024, 390, and 320 px checked on 7 October | Fonts, card fit, panel stacking, track ratios, and exceptions; not whole-app mobile certification. See [implementation record](model_operations_ui.md). |
 | Review queue browser QA | 1440, 1024, 390, and 320 px checked on 9 October | Native selection, family colours/keyboard operation, validation, an actual synthetic SQLite save, empty states, responsive geometry and screenshots. No real reviews or model artifacts overwritten. See [implementation record and commands](review_queue_ui.md). |
 | Triage browser QA | 20 state/width geometry checks at 1440, 1024, 390 and 320 px on 9 October, plus evidence-row checks | Actual deterministic dataset/JSON/replay scoring, JSON errors, ticket download, retained feed and alert-only writes to isolated SQLite. No page errors or document overflow. Not every device/failure combination. See [implementation record and commands](triage_workflow_ui.md). |
-| Portable browser suite | All 23 Chromium cases passed in clean export 3d0b4a5 (430.66 seconds) | 16 existing console flows, four candidate training/promotion/rollback flows and three controlled-HTML readiness checks. 20 console reports have no page errors/external HTTP; JUnit has zero failures/errors/skips. Six-row five-family candidate evaluation is synthetic, not a quality benchmark. See [browser record](browser_testing.md). |
+| Portable browser suite | All 23 Chromium cases passed in clean export ca44e3f (366.74 seconds) | 16 existing console flows, four consensus/conflict/training/promotion/rollback flows and three controlled-HTML readiness checks. 20 console reports have no page errors or blocked external browser HTTP; JUnit has zero failures/errors/skips. Final screenshots inspected at four widths. Six-row five-family candidate evaluation is synthetic, not a quality benchmark. See [browser record](browser_testing.md). |
 | Figma access | Last attempt on 9 October: page metadata succeeded; Foundations inspection returned Starter-plan quota limit | Not retried in the browser or retraining pass. No content audit/drawing changes or inferred drawing closures. |
 | Evolution brief | Regenerated from [versioned source](../scripts/generate_evolution_pdf.py) in the preceding cleanup | Preserves that dated 155-test checkpoint and Model Operations evidence; not regenerated for Review queue or Triage. This status record holds the latest test count. |
 
@@ -45,10 +46,11 @@ are not included in its commits. Both trackers are reconciled with this governan
   Closing scanner setup does **not** close advisory remediation.
 - **E6 - Portable browser suite/CI implementation:** committed isolated fixtures,
   workflow/layout assertions and blocking Chromium job, with a complete clean-export
-  local run. Its first merged remote run is independently verified successful above.
-  The owner confirms the corrected PR passed and merged. This new branch still needs CI.
+  local run. Earlier run `82c652a` is independently verified in the
+  [retraining record](retraining_testing.md); the owner confirms candidate CI passed
+  and merged in `c88f18a`. This new branch still needs CI.
 - **G1 - Default eligible cohort minimum:** candidate/UI/CLI runs require five latest
-  eligible corrections. Five is a prototype policy, not analyst consensus; explicit
+  consensus-approved corrections. Five is a prototype policy, not statistical assurance; explicit
   low-level library configuration remains supported.
 - **G3 - Local candidate lifecycle:** separate bundles, RF non-regression criteria,
   explicit promotion and rollback, reference freshness, integrity checks and transactional
@@ -59,6 +61,12 @@ are not included in its commits. Both trackers are reconciled with this governan
   via `abb36b9` and `4ecfcf1`; [screen reference](https://www.figma.com/design/qh0Rkefos51ldMTGsL6FN0?node-id=12-4).
 
 ## Partial Progress, Not Closure
+
+- **G2:** trusted-local two-label unanimous agreement, latest-per-label decisions,
+  conflict holdout and 10% total / 5% credited-per-label explicit sample-weight budgets
+  now apply to governed candidates. RF class balancing is unchanged and can amplify
+  relative rare-class weight; combined class-weight/prior budgets remain open.
+  Free-text labels are not authenticated independence (G5).
 
 - **Real-retraining test task:** complete with 28 additional cases and an absent-class
   probability fix. **E3 remains open:** synthetic functional checks are not an
@@ -72,8 +80,10 @@ are not included in its commits. Both trackers are reconciled with this governan
   mapped controls. The Figma drawing is still historically open pending live access.
 - **D3:** Docker CI build is confirmed; local Docker is unavailable. A passing build
   does not prove the container serves the app or scores an event end to end (E5).
-- **G2:** weight is now bounded to 60.0 in the UI/API/CLI, not just UI. Consensus,
-  total/per-analyst influence budgets and authenticated attribution remain absent.
+- **G4:** cohort status, conflict holdout and per-label peer-agreement diagnostics
+  now exist, along with exact review IDs and weight attribution. Peer agreement is
+  not label correctness; ground-truth reliability/bias analysis and authenticated
+  adjudication remain outstanding. See [implementation and commands](feedback_governance.md).
 - **E7/E8:** local bundles link source/dataset/correction hashes, review IDs, Git
   commit/dirty state, parameters, relevant versions, metrics and artifact/report digests.
   A local registry and candidate-to-active boundary exist. Complete dependency closure,
@@ -85,11 +95,12 @@ are not included in its commits. Both trackers are reconciled with this governan
    MetricTile/EvidenceRow, apply text styles, and define interactive states before
    drawing more duplicate screen states. Resume once quota permits; also recheck
    item 6 against the verified Review queue implementation.
-2. **Publish the candidate branch and require fresh CI:** local lifecycle tests are
+2. **Publish the feedback-governance branch and require fresh CI:** local lifecycle tests are
    not Linux/Python 3.10-3.12 or container certification. Nothing was pushed here.
 3. **Independent quality and reviewer governance (E3 / G2/G4/G5 / E7/E8):** seal
-   independent evaluation/provenance, define rare-class acceptance floors and influence
-   budgets, then authenticated attribution and conflict handling. The current RF check
+   independent evaluation/provenance, define rare-class acceptance floors, then
+   combined class-weight/prior budgets, authenticated attribution and ground-truth
+   bias/adjudication analysis. The current RF check
    uses the supplied evaluation file; repeated selection can overfit it. Local run
    manifests are not complete experiment replay or signed/remote model operations.
 4. **Fresh advisory triage and operational checks (E2 / E4 / E5):** re-audit before
@@ -118,6 +129,11 @@ default retraining policy and application/CLI selection workflow. Only synthetic
 temporary models/reviews were written during verification; existing real analyst
 records, model artifacts and published metrics were not overwritten. The dated
 155-test PDF describes the earlier checkpoint, not today's candidate lifecycle.
+The subsequent [feedback governance pass](feedback_governance.md) applies local-label
+agreement and actual RF sample-weight budgets, records conflict/peer diagnostics,
+and rejects stale review snapshots at promotion. Existing active/rollback models
+remain usable; old-policy candidates need retraining before new promotion. It does
+not add authentication, independent quality certification or Figma drawing closures.
 
 ## Tracking Cleanup Commands
 

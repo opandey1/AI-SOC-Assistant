@@ -29,6 +29,19 @@ def settled(page):
     page.evaluate("() => document.fonts.ready")
 
 
+def open_governance(page):
+    page.get_by_text("Feedback governance", exact=True).click()
+    expect(page.get_by_role("button", name=re.compile(r"Download cohort audit$"))).to_be_visible()
+    page.wait_for_function(
+        """() => {
+            const button = [...document.querySelectorAll('button')].find(el => el.textContent.includes('Download cohort audit'));
+            const expander = button?.closest('[data-testid="stExpander"]');
+            if (!expander) return false;
+            return expander.getBoundingClientRect().bottom >= button.getBoundingClientRect().bottom;
+        }"""
+    )
+
+
 def analyze(page, *, alert):
     context = page.get_by_text(re.compile(r"^Last scored event:"))
     previous = context.text_content() if context.count() else None
@@ -251,12 +264,12 @@ def test_review_validation_save_and_model_cohort(console):
     expect(page.get_by_text("No tickets match this review state", exact=True)).to_be_visible()
     expect(page.get_by_text("No ticket selected", exact=True)).to_be_visible()
     select(page, "Model")
-    expect(page.locator(".soc-cohort")).to_be_visible()
-    expect(page.locator(".soc-cohort").get_by_role("cell", name="u2r", exact=True)).to_be_visible()
+    expect(page.get_by_text("No consensus-approved cohort yet", exact=True)).to_be_visible()
     expect(page.locator(".st-key-retrain_model button")).to_be_disabled()
-    expect(page.get_by_text("1 of 5 required eligible corrections.", exact=True)).to_be_visible()
+    open_governance(page)
+    expect(page.get_by_text("1 awaiting agreement", exact=False)).to_be_visible()
     layout(console, "model-cohort")
-    console.screenshot("cohort", ".soc-cohort")
+    console.screenshot("cohort", ".st-key-model_operations")
     assert not (console.workspace.root / "models/soc_model.joblib").exists()
     assert not (console.workspace.root / "state/retrain_report.json").exists()
 
@@ -266,7 +279,7 @@ def test_model_protocol_layout_fonts_and_disabled_retrain(console):
     select(page, "Model")
     expect(page.get_by_role("heading", name="Model operations", exact=True)).to_be_visible()
     expect(page.locator(".st-key-retrain_model button")).to_be_disabled()
-    expect(page.get_by_text("No reviewed cohort yet", exact=True)).to_be_visible()
+    expect(page.get_by_text("No consensus-approved cohort yet", exact=True)).to_be_visible()
     expect(page.locator(".soc-proto")).to_have_count(3)
     settled(page)
     assert page.evaluate(

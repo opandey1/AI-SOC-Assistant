@@ -95,6 +95,15 @@ class TrainingWorkspace:
             reviewed_by="synthetic-test-analyst",
         )
 
+    def consensus(self, ticket_id, corrected_class="dos"):
+        self.review(ticket_id, corrected_class)
+        self.store.record_review(
+            ticket_id,
+            disposition="false_positive",
+            corrected_class=corrected_class,
+            reviewed_by="second-test-analyst",
+        )
+
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch) -> TrainingWorkspace:
@@ -214,6 +223,7 @@ def test_real_retraining_weights_latest_reviews_and_round_trips(workspace, monke
         random_forest_updated=True,
         isolation_forest_updated=False,
         provenance=report.provenance,
+        feedback_governance={},
     )
     assert loaded.feature_names == data.feature_names
     assert loaded.isolation_threshold == 0.6
@@ -348,7 +358,7 @@ def test_cli_rejects_invalid_weight(value):
 
 def test_main_saves_default_weight_and_matching_stdout_report(workspace, monkeypatch, capsys):
     for index in range(5):
-        workspace.review(workspace.ticket(index=index), "dos")
+        workspace.consensus(workspace.ticket(index=index))
     registry_path = workspace.root / "registry"
     monkeypatch.setattr(
         sys,
@@ -382,7 +392,7 @@ def test_main_saves_default_weight_and_matching_stdout_report(workspace, monkeyp
 
 def test_cli_runs_real_training_with_explicit_temporary_paths(workspace):
     for index in range(5):
-        workspace.review(workspace.ticket(index=index), "dos")
+        workspace.consensus(workspace.ticket(index=index))
     registry_path = workspace.root / "registry"
     result = subprocess.run(
         [
@@ -465,8 +475,14 @@ def test_real_candidate_fit_is_separate_and_has_provenance(workspace, corrected_
     from src.model_registry import ModelRegistry
     from src.retrain import file_digest
 
+    if not accepted:
+        rows = pd.read_csv(workspace.train_path, header=None, names=NSL_KDD_COLUMNS)
+        rare = rows.index[rows["label"] == "buffer_overflow"]
+        rows.drop(rare[1:]).to_csv(workspace.train_path, index=False, header=False)
     for index in range(5):
-        workspace.review(workspace.ticket(index=index), corrected_class)
+        workspace.consensus(
+            workspace.ticket(family="dos" if accepted else "u2r", index=index), corrected_class
+        )
     registry = ModelRegistry(workspace.root / "registry")
     candidate = registry.create_candidate(
         database_path=workspace.store.path,
@@ -519,7 +535,7 @@ def test_candidate_fit_failure_removes_stage_and_never_registers(workspace, monk
     from src.model_registry import ModelRegistry
 
     for index in range(5):
-        workspace.review(workspace.ticket(index=index), "dos")
+        workspace.consensus(workspace.ticket(index=index))
     registry = ModelRegistry(workspace.root / "registry")
     monkeypatch.setattr(
         train, "train_random_forest", Mock(side_effect=RuntimeError("injected-fit"))
@@ -547,4 +563,69 @@ def test_dataset_mutation_during_fit_prevents_artifact_save(workspace, monkeypat
     monkeypatch.setattr(train, "train_random_forest", mutate)
     with pytest.raises(ValueError, match="Dataset files changed"):
         workspace.retrain()
+    assert not workspace.output.exists()
+
+
+@pytest.mark.parametrize("balanced", [False, True])
+def test_governed_actual_fit_uses_capped_weights_and_exact_reviews(
+    workspace, monkeypatch, balanced
+):
+    from src.feedback_policy import FeedbackPolicy
+
+    for index in range(5):
+        workspace.consensus(workspace.ticket(index=index))
+    original = train.train_random_forest
+    captured = []
+
+    def observe(data, **kwargs):
+        if kwargs.get("sample_weight") is not None:
+            captured.append((len(data.x_train_balanced) - 5, kwargs["sample_weight"].copy()))
+        return original(data, **kwargs)
+
+    monkeypatch.setattr(train, "train_random_forest", observe)
+    report = workspace.retrain(feedback_policy=FeedbackPolicy(), use_smote=balanced)
+    base_rows, weights = captured[0]
+    plan = report.feedback_governance["weights"]
+    np.testing.assert_array_equal(weights[:base_rows], np.ones(base_rows))
+    np.testing.assert_allclose(weights[base_rows:], plan["sample_weights"])
+    assert plan["total_weight"] == pytest.approx(base_rows * 0.1)
+    assert all(value <= base_rows * 0.05 + 1e-12 for value in plan["reviewer_weights"].values())
+    assert len(report.provenance["consensus_review_ids"]) == 10
+    assert (
+        load_model_artifact(workspace.output).metadata["feedback_governance"]
+        == report.feedback_governance
+    )
+
+
+def test_candidate_requires_consensus_before_loading_data_or_fitting(workspace, monkeypatch):
+    from src.model_registry import ModelRegistry
+
+    for index in range(5):
+        workspace.review(workspace.ticket(index=index), "dos")
+    fit = Mock()
+    monkeypatch.setattr(train, "train_random_forest", fit)
+    registry = ModelRegistry(workspace.root / "registry")
+    with pytest.raises(ValueError, match="No consensus-approved"):
+        registry.create_candidate(
+            database_path=workspace.store.path, train_path="absent", test_path="absent"
+        )
+    fit.assert_not_called()
+    assert registry.candidates() == [] and not list(registry.root.iterdir())
+
+
+def test_review_change_during_actual_fit_prevents_saving(workspace, monkeypatch):
+    from src.feedback_policy import FeedbackPolicy
+
+    for index in range(5):
+        workspace.consensus(workspace.ticket(index=index))
+    original = train.train_random_forest
+
+    def retract(data, **kwargs):
+        result = original(data, **kwargs)
+        workspace.review(1, disposition="needs_investigation")
+        return result
+
+    monkeypatch.setattr(train, "train_random_forest", retract)
+    with pytest.raises(ValueError, match="Review decisions changed"):
+        workspace.retrain(feedback_policy=FeedbackPolicy())
     assert not workspace.output.exists()

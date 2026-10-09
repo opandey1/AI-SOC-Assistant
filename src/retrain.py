@@ -19,6 +19,7 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, recall_score
 
 from src.feedback import FeedbackStore
+from src.feedback_policy import FeedbackPolicy, build_cohort, weight_plan
 from src.ingest import LABEL_MAP
 from src.model_store import create_model_artifact, save_model_artifact
 
@@ -49,6 +50,7 @@ class RetrainingReport:
     updated_per_class_recall: dict[str, float] = field(default_factory=dict)
     evaluation_support: dict[str, int] = field(default_factory=dict)
     provenance: dict = field(default_factory=dict)
+    feedback_governance: dict = field(default_factory=dict)
 
 
 def file_digest(path: str | Path) -> str:
@@ -150,11 +152,14 @@ def retrain_from_feedback(
     isolation_threshold: float = 0.7,
     use_smote: bool = True,
     minimum_feedback_examples: int = MINIMUM_FEEDBACK_EXAMPLES,
+    feedback_policy: FeedbackPolicy | None = None,
 ) -> RetrainingReport:
     """Low-level fitter; application/CLI candidate lifecycle is in model_registry.
 
     Explicit output paths are still supported for library callers. This function alone
     is not a promotion API and can replace that path; never pass an active artifact.
+    Only callers supplying feedback_policy use consensus and influence budgets; all
+    governed application/CLI runs supply the current policy through ModelRegistry.
     """
 
     if not math.isfinite(feedback_weight) or feedback_weight <= 0:
@@ -169,8 +174,11 @@ def retrain_from_feedback(
         raise ValueError("minimum_feedback_examples must be a positive integer.")
 
     store = FeedbackStore(database_path)
-    examples = store.feedback_examples()
+    cohort = build_cohort(store.review_snapshot(), feedback_policy) if feedback_policy else None
+    examples = cohort.examples if cohort else store.feedback_examples()
     if not examples:
+        if cohort is not None:
+            raise ValueError("No consensus-approved corrections are available for retraining.")
         raise ValueError("No reviewed false positives are available for retraining.")
     if len(examples) < minimum_feedback_examples:
         raise ValueError(
@@ -191,6 +199,20 @@ def retrain_from_feedback(
         search_roots=[project_root, Path.cwd()],
     )
     data = preprocess_dataset(dataset, use_smote=use_smote)
+    governance = {}
+    if cohort:
+        governance = {
+            "version": 1,
+            "identity": "unauthenticated_local_labels",
+            "policy": asdict(feedback_policy),
+            "cohort": cohort.audit(),
+            "weights": weight_plan(
+                cohort,
+                base_rows=len(data.x_train_balanced),
+                requested_weight=feedback_weight,
+                policy=feedback_policy,
+            ),
+        }
 
     feedback_frame = pd.DataFrame([example.raw_record for example in examples])
     _, feedback_scaled = transform_connections(feedback_frame, data)
@@ -213,7 +235,11 @@ def retrain_from_feedback(
     sample_weight = np.concatenate(
         [
             np.ones(len(data.x_train_balanced), dtype=float),
-            np.full(len(feedback_scaled), feedback_weight, dtype=float),
+            (
+                np.asarray(governance["weights"]["sample_weights"], dtype=float)
+                if governance
+                else np.full(len(feedback_scaled), feedback_weight, dtype=float)
+            ),
         ]
     )
     updated_data = replace(
@@ -249,6 +275,12 @@ def retrain_from_feedback(
     output_path = Path(output_model)
     if dataset_hashes != {"train": file_digest(paths.train), "test": file_digest(paths.test)}:
         raise ValueError("Dataset files changed during retraining; no artifact was saved.")
+    if (
+        cohort
+        and build_cohort(store.review_snapshot(), feedback_policy).snapshot_sha256
+        != cohort.snapshot_sha256
+    ):
+        raise ValueError("Review decisions changed during retraining; no artifact was saved.")
     provenance = {
         "datasets": dataset_hashes,
         "code": _code_provenance(project_root),
@@ -258,6 +290,9 @@ def retrain_from_feedback(
             ).encode()
         ).hexdigest(),
         "feedback_review_ids": [example.review_id for example in examples],
+        "consensus_review_ids": [
+            review_id for example in examples for review_id in example.review_ids
+        ],
         "minimum_feedback_examples": minimum_feedback_examples,
         "parameters": {
             "random_forest": updated_rf.get_params(),
@@ -286,6 +321,7 @@ def retrain_from_feedback(
             "random_forest_updated": True,
             "isolation_forest_updated": False,
             "provenance": provenance,
+            "feedback_governance": governance,
         },
     )
     save_model_artifact(artifact, output_path)
@@ -311,6 +347,7 @@ def retrain_from_feedback(
         updated_per_class_recall=updated_metrics["recall"],
         evaluation_support=updated_metrics["support"],
         provenance=provenance,
+        feedback_governance=governance,
     )
     return report
 

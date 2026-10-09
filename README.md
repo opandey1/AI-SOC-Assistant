@@ -163,19 +163,26 @@ The Kafka topic uses a documented JSON envelope containing event metadata plus a
 
 ### Analyst feedback and retraining
 
-Review tickets from the console or CLI, then train a candidate (five eligible corrections required by default):
+Review tickets from the console or CLI, then train a candidate (five corrections,
+each with two agreeing reviewer labels, required):
 
 ```bash
 python -m src.feedback list --state unreviewed
-python -m src.feedback review 1 --disposition false_positive --corrected-class normal
+python -m src.feedback review 1 --disposition false_positive --corrected-class normal --analyst alice
+python -m src.feedback review 1 --disposition false_positive --corrected-class normal --analyst bob
 python -m src.retrain
 python -m src.model_registry list
 ```
 
 Reviews are append-only. Within each run, RF baseline and candidate share an Isolation
 Forest fitted from the original training data; feedback updates the RF only. Weights
-must be finite, positive and at most 60.0. This is a per-example bound, not a
-per-analyst influence cap. Candidates must not regress RF accuracy, fixed-five-class
+must be finite, positive and at most 60.0. Governed training uses the latest decision
+per reviewer label, requires unanimous correction agreement and holds conflicts out.
+Requested weights are scaled to a 10% total / 5% per-label share of base balanced
+training weight. Free-text labels are not authenticated identities; peer agreement
+is not label accuracy or poisoning prevention. These caps apply to explicit sample
+weights, before RF class balancing; combined-weight/prior governance remains open.
+Candidates must not regress RF accuracy, fixed-five-class
 macro F1 or any class recall against the fresh baseline and, when present, the
 registry-selected artifact on the supplied evaluation file. Missing evaluation
 classes and altered bundles fail closed. Passing is not production certification
@@ -184,7 +191,10 @@ or independent benchmark validation.
 Model Operations offers candidate reports, explicit operator/confirmation controls
 and selection history. Equivalent CLI promotion/rollback commands, migration from
 the old `--output`/`--report` flags, provenance details and limitations are in the
-[candidate governance guide](docs/candidate_governance.md). Streaming/other CLI callers
+[candidate governance guide](docs/candidate_governance.md). The
+[feedback governance guide](docs/feedback_governance.md) covers consensus, actual
+sample-weight budgets, conflict diagnostics and review-freshness checks. Old-policy
+candidates or changed reviews require a new run before promotion. Streaming/other CLI callers
 still use an explicitly supplied `--model` path; the registry does not silently change them.
 
 The historical single-correction example changed a normal row from `probe` to
@@ -198,7 +208,7 @@ synthetic fixtures. These are functional checks, not model-quality benchmarks. A
 class absent from the baseline has zero corrected-class probability rather than
 causing a lookup failure. New lifecycle tests cover candidate rejection, integrity,
 stale/concurrent actions and transactional selection/rollback. Independent quality
-benchmarks, authenticated identity, analyst consensus and influence budgets remain open.
+benchmarks, authenticated identity and ground-truth reviewer-bias analysis remain open.
 
 ### External dataset benchmark
 

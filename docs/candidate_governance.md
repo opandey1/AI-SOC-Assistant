@@ -1,5 +1,10 @@
 # Candidate-First Retraining
 
+This is the historical candidate-lifecycle implementation record. The subsequent
+[feedback governance pass](feedback_governance.md) supersedes its latest-overall
+cohort, uncapped influence and consensus-absent descriptions. Current application/CLI
+training requires two agreeing reviewer labels per correction and budget-capped weights.
+
 Implementation record for the next governance pass after merged `8c7b459`,
 9 October 2026. The owner confirmed that the preceding PR's corrected CI passed
 before merging; local refs show `main` and `origin/main` at that merge. This pass
