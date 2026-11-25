@@ -65,6 +65,26 @@ fused/ISO alert quality, calibration, precision, statistical confidence, latency
 SHAP faithfulness, modern-data transfer or all three published protocols. E3
 remains open for provenance-controlled independent evaluation and quality CI.
 
+### Real-Data Review Evidence
+
+In the 25 November 2026 review of `a80f2c6`, Claude trained two governed candidates
+on `KDDTrain+` and evaluated them on `KDDTest+` in temporary workspaces. Each cohort
+used five training records already classified correctly as Normal. The predicted
+class on all five corrections stayed the same. Both candidates were rejected by the
+original-data and legacy-reference checks despite gaining macro F1.
+
+| Requested weight | RF accuracy before | RF accuracy after | RF macro F1 change | Family recall regressions |
+| ---: | ---: | ---: | ---: | --- |
+| 25 | 74.40% | 74.17% | +0.37 pp | DoS, Probe |
+| 1 (different five records) | 74.40% | 74.10% | +0.80 pp | DoS, Probe, R2L |
+
+Reweighting and adding rows changes the fitted forest even when predicted labels on
+the correction cohort stay the same. Model Operations displays each rejection next
+to the selected candidate's metrics and tones the macro F1 tile as a warning when
+the candidate is rejected. These two case studies motivate matched perturbation
+controls and paired held-out predictions for E3. The promotion rule still requires
+zero regression on the configured file.
+
 ### Explicit Promotion and Rollback
 
 Training does not overwrite `models/soc_model.joblib` or switch the model selected

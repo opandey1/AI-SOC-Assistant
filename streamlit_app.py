@@ -17,6 +17,7 @@ import streamlit as st
 
 from src import ui
 from src.feedback import CORRECTABLE_CLASSES, REVIEW_DISPOSITIONS, FeedbackStore
+from src.governance_errors import GovernanceError, GovernanceReason
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resolve_dataset_paths
 from src.model_store import MODEL_ARTIFACT_FORMAT, load_model_artifact, runtime_from_artifact
 from src.model_registry import ModelRegistry
@@ -35,6 +36,26 @@ DEFAULT_DATABASE = PROJECT_ROOT / "state" / "soc_feedback.db"
 DEFAULT_MODEL = PROJECT_ROOT / "models" / "soc_model.joblib"
 REGISTRY_ROOT = Path(os.environ.get("SOC_MODEL_REGISTRY", PROJECT_ROOT / "models" / "registry"))
 LOGGER = logging.getLogger(__name__)
+
+GOVERNANCE_ERROR_MESSAGES = {
+    GovernanceReason.REGISTRY_NOT_INITIALIZED: "No candidate registry exists yet. Train a candidate first.",
+    GovernanceReason.REVIEWS_CHANGED: "Review decisions changed. Check the current cohort and train a new candidate.",
+    GovernanceReason.DATASET_CHANGED: "The dataset changed during training or evaluation. Verify the input files and try again.",
+    GovernanceReason.ACTIVE_MODEL_CHANGED: "The active model changed during training. Check the current selection and train again.",
+    GovernanceReason.STALE_SELECTION: "The model selection changed. Refresh and confirm the intended action again.",
+    GovernanceReason.STALE_CANDIDATE_REFERENCE: "This candidate was evaluated against an earlier selection. Train a new candidate.",
+}
+
+
+def show_governance_failure(error: Exception, event: str, fallback: str) -> None:
+    reason = error.reason if isinstance(error, GovernanceError) else None
+    if isinstance(reason, GovernanceReason) and reason in GOVERNANCE_ERROR_MESSAGES:
+        LOGGER.warning("%s reason=%s type=%s", event, reason.value, type(error).__name__)
+        st.error(f"{GOVERNANCE_ERROR_MESSAGES[reason]} (`{reason.value}`)")
+    else:
+        LOGGER.warning("%s reason=unexpected type=%s", event, type(error).__name__)
+        st.error(fallback)
+
 
 # Published evaluation results (docs/evaluation/*). Reported hardest-first.
 EVALUATION_PROTOCOLS = (
@@ -911,10 +932,11 @@ else:
                         expanded=False,
                     )
                 except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
-                    LOGGER.warning("candidate_failed type=%s", type(exc).__name__)
-                    status.update(label="Candidate training failed", state="error", expanded=False)
-                    st.error(
-                        "Candidate training could not complete. Check the eligible cohort, datasets and local storage."
+                    status.update(label="Candidate training failed", state="error", expanded=True)
+                    show_governance_failure(
+                        exc,
+                        "candidate_failed",
+                        "Candidate training could not complete. Check the eligible cohort, datasets and local storage.",
                     )
 
         candidates = [item for item in registry.candidates() if item["kind"] == "feedback"]
@@ -956,8 +978,6 @@ else:
                 st.success(
                     "Evaluation non-regression check passed; not yet production certification."
                 )
-            else:
-                st.warning("Rejected: " + ", ".join(candidate["reasons"]))
             operator = st.text_input("Operator", key="model_operator")
             confirmed = st.checkbox(
                 "Confirm active-model change",
@@ -999,9 +1019,10 @@ else:
                     reset_triage_result()
                     st.rerun()
                 except (ValueError, OSError, sqlite3.Error) as exc:
-                    LOGGER.warning("model_selection_failed type=%s", type(exc).__name__)
-                    st.error(
-                        "Model selection could not change. Refresh and inspect the candidate/reference integrity."
+                    show_governance_failure(
+                        exc,
+                        "model_selection_failed",
+                        "Model selection could not change. Refresh and inspect the candidate/reference integrity.",
                     )
             with st.expander("Model selection history", icon=":material/history:"):
                 st.json(registry.history())
@@ -1017,6 +1038,8 @@ else:
             )
         delta = report["updated_macro_f1"] - report["baseline_macro_f1"]
         st.html(ui.section_label("LATEST CANDIDATE"))
+        if not candidate["accepted"]:
+            st.warning("Rejected: " + ", ".join(candidate["reasons"]))
         st.html(
             ui.tile_row(
                 [
@@ -1040,8 +1063,10 @@ else:
                     ui.tile(
                         "MACRO F1",
                         f"{report['updated_macro_f1']:.2%}",
-                        f"{delta:+.2%} vs baseline",
-                        color=(ui.TOKENS["status-ok"] if delta >= 0 else ui.TOKENS["status-warn"]),
+                        f"{100 * delta:+.2f} pp vs baseline",
+                        color=ui.TOKENS[
+                            "status-ok" if candidate["accepted"] and delta >= 0 else "status-warn"
+                        ],
                     ),
                 ]
             )

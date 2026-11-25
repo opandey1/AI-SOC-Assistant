@@ -16,6 +16,7 @@ from sklearn.metrics import accuracy_score, f1_score
 
 from src import train
 from src.feedback import FeedbackStore
+from src.governance_errors import GovernanceError, GovernanceReason
 from src.ingest import LABEL_MAP, MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd
 from src.model_store import load_model_artifact, runtime_from_artifact
 from src.preprocess import preprocess_dataset, transform_connections
@@ -551,13 +552,15 @@ def test_candidate_fit_failure_removes_stage_and_never_registers(workspace, monk
 
 
 @pytest.mark.parametrize(
-    "change, error",
+    "change, reason, message",
     [
-        ("evaluation", "Evaluation dataset changed during candidate comparison"),
-        ("selection", "Active model changed during candidate training"),
+        ("evaluation", GovernanceReason.DATASET_CHANGED, "Evaluation dataset changed"),
+        ("selection", GovernanceReason.ACTIVE_MODEL_CHANGED, "Active model changed"),
     ],
 )
-def test_candidate_publication_rejects_changes_after_fitting(workspace, monkeypatch, change, error):
+def test_candidate_publication_rejects_changes_after_fitting(
+    workspace, monkeypatch, change, reason, message
+):
     from src.model_registry import ModelRegistry
 
     for index in range(5):
@@ -587,8 +590,9 @@ def test_candidate_publication_rejects_changes_after_fitting(workspace, monkeypa
         return report
 
     monkeypatch.setattr("src.model_registry.retrain_from_feedback", change_after_fit)
-    with pytest.raises(ValueError, match=error):
+    with pytest.raises(GovernanceError, match=message) as error:
         registry.create_candidate(**options)
+    assert error.value.reason is reason
     assert registry.state() == expected_state and registry.history() == expected_history
     assert registry.candidates() == [active]
     assert model_path.read_bytes() == original_model
@@ -606,8 +610,9 @@ def test_dataset_mutation_during_fit_prevents_artifact_save(workspace, monkeypat
         return result
 
     monkeypatch.setattr(train, "train_random_forest", mutate)
-    with pytest.raises(ValueError, match="Dataset files changed"):
+    with pytest.raises(GovernanceError, match="Dataset files changed") as error:
         workspace.retrain()
+    assert error.value.reason is GovernanceReason.DATASET_CHANGED
     assert not workspace.output.exists()
 
 
@@ -671,6 +676,7 @@ def test_review_change_during_actual_fit_prevents_saving(workspace, monkeypatch)
         return result
 
     monkeypatch.setattr(train, "train_random_forest", retract)
-    with pytest.raises(ValueError, match="Review decisions changed"):
+    with pytest.raises(GovernanceError, match="Review decisions changed") as error:
         workspace.retrain(feedback_policy=FeedbackPolicy())
+    assert error.value.reason is GovernanceReason.REVIEWS_CHANGED
     assert not workspace.output.exists()
