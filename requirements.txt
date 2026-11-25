@@ -13,4 +13,5 @@ requests==2.34.2
 scikit-learn==1.5.2
 seaborn==0.13.2
 shap==0.46.0
-streamlit==1.60.0
+# 1.62.0 fixes static font responses with newer Starlette gzip middleware.
+streamlit==1.62.0
