@@ -104,6 +104,11 @@ python -m pip install -r requirements.txt
 python -m pip check
 ```
 
+The install uses [web-stack constraints](constraints-web.txt) for Streamlit's ASGI
+dependencies. Local installs, CI, and Docker use the same constraints, recorded
+from [PR #5's green run](https://github.com/opandey1/AI-SOC-Assistant/actions/runs/45646186345).
+Refresh them with the full Python, Chromium, and Docker matrix.
+
 On Windows PowerShell, activate the environment with `.\.venv\Scripts\Activate.ps1` instead. Then place `KDDTrain+.txt` and `KDDTest+.txt` in `data/`; see [data/README.md](data/README.md) for the official source, reference checksums, and verification procedure.
 
 Run the deterministic offline path:

@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install dependencies first so the layer is cached across source changes.
-COPY requirements.txt .
+COPY requirements.txt constraints-web.txt ./
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt \
     && addgroup --system app \
