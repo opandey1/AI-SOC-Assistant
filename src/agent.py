@@ -140,11 +140,18 @@ def _validated_ip(ip_address: Any) -> str:
         raise ValueError("A valid source IP address is required.") from exc
 
 
-def _resolve_source_ip(shap_bundle: dict[str, Any], src_ip: str | None) -> str:
-    candidate = src_ip if src_ip is not None else shap_bundle.get("source_ip")
-    if candidate is None or (isinstance(candidate, str) and candidate.strip() in {"", "unknown"}):
+def normalize_source_ip(ip_address: Any) -> str:
+    """Canonicalize an optional source IP without reflecting invalid input."""
+
+    if ip_address is None or (
+        isinstance(ip_address, str) and ip_address.strip() in {"", "unknown"}
+    ):
         return "unknown"
-    return _validated_ip(candidate)
+    return _validated_ip(ip_address)
+
+
+def _resolve_source_ip(shap_bundle: dict[str, Any], src_ip: str | None) -> str:
+    return normalize_source_ip(src_ip if src_ip is not None else shap_bundle.get("source_ip"))
 
 
 def _validated_timestamp(timestamp: str | None) -> str:
