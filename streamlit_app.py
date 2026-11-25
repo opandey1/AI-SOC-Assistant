@@ -189,6 +189,7 @@ def show_analysis(analysis: ConnectionAnalysis, ticket_id: int | None) -> None:
                 data=analysis.ticket,
                 file_name=f"incident_ticket_{ticket_id or 'draft'}.md",
                 mime="text/markdown",
+                on_click="ignore",
                 icon=":material/download:",
             )
         else:

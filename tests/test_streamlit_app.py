@@ -220,7 +220,8 @@ def test_triage_single_connection_renders_clear_and_alert(triage_runtime, mode, 
     if alert:
         triage_runtime.store.log_analysis.assert_called_once()
         assert "STORED AS TICKET #42" in _html(app)
-        assert app.get("download_button")
+        (download,) = app.get("download_button")
+        assert download.proto.ignore_rerun
     else:
         triage_runtime.store.log_analysis.assert_not_called()
         assert "NO TICKET GENERATED" in _html(app)
