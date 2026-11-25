@@ -34,9 +34,11 @@ import pandas as pd
 
 from streamlit.testing.v1 import AppTest
 
+from src import ui
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, DatasetPaths
 from src.feedback import CORRECTABLE_CLASSES, FeedbackStore, TicketRecord
 from src.feedback_policy import build_cohort
+from src.governance_errors import GovernanceError, GovernanceReason
 from src.retrain import RetrainingReport
 from src.runtime import ConnectionAnalysis
 from src.train import ConnectionScore
@@ -218,7 +220,8 @@ def test_triage_single_connection_renders_clear_and_alert(triage_runtime, mode, 
     if alert:
         triage_runtime.store.log_analysis.assert_called_once()
         assert "STORED AS TICKET #42" in _html(app)
-        assert app.get("download_button")
+        (download,) = app.get("download_button")
+        assert download.proto.ignore_rerun
     else:
         triage_runtime.store.log_analysis.assert_not_called()
         assert "NO TICKET GENERATED" in _html(app)
@@ -848,7 +851,10 @@ def test_promotion_requires_operator_confirmation_and_resets_after_change(candid
 @pytest.mark.parametrize("reason", ["rejected", "stale", "old_policy", "changed_review"])
 def test_candidate_cannot_be_promoted_from_unready_ui(candidate_view, reason):
     if reason == "rejected":
-        candidate_view.candidate.update(accepted=False, reasons=["regressed_macro_f1"])
+        candidate_view.candidate.update(
+            accepted=False, reasons=["regressed_accuracy", "active_regressed_recall_dos"]
+        )
+        candidate_view.report.update(baseline_macro_f1=0.51, updated_macro_f1=0.515)
     elif reason == "stale":
         candidate_view.state["generation"] = 1
     elif reason == "old_policy":
@@ -860,27 +866,67 @@ def test_candidate_cannot_be_promoted_from_unready_ui(candidate_view, reason):
     app.checkbox[0].check().run()
     assert app.button(key="promote_candidate").disabled
     candidate_view.promotion.assert_not_called()
+    if reason == "rejected":
+        assert app.warning[0].value == "Rejected: regressed_accuracy, active_regressed_recall_dos"
+        tiles = next(
+            element.proto.body for element in app.get("html") if "MACRO F1" in element.proto.body
+        )
+        macro_tile = tiles.split("MACRO F1</div>", 1)[1]
+        assert f'style="color:{ui.TOKENS["status-warn"]}">51.50%</div>' in macro_tile
+        assert "+0.50 pp vs baseline" in macro_tile
 
 
-def test_selection_failure_does_not_expose_exception_payload(candidate_view, caplog):
-    candidate_view.promotion.side_effect = ValueError("secret-token=do-not-display")
+@pytest.mark.parametrize(
+    "reason, message",
+    [
+        (None, "Model selection could not change"),
+        (GovernanceReason.STALE_SELECTION, "The model selection changed"),
+        (
+            GovernanceReason.STALE_CANDIDATE_REFERENCE,
+            "This candidate was evaluated against an earlier selection",
+        ),
+        (GovernanceReason.REGISTRY_NOT_INITIALIZED, "No candidate registry exists yet"),
+    ],
+)
+def test_selection_failure_does_not_expose_exception_payload(
+    candidate_view, caplog, reason, message
+):
+    payload = "Stale model selection: secret-token=do-not-display"
+    candidate_view.promotion.side_effect = (
+        GovernanceError(reason, payload) if reason else ValueError(payload)
+    )
     app = _candidate_app()
     app.text_input(key="model_operator").set_value("alice").run()
     app.checkbox[0].check().run()
     app.button(key="promote_candidate").click().run()
     _assert_clean(app, "failed promotion")
-    assert "Model selection could not change" in app.error[0].value
+    assert message in app.error[0].value
+    if reason:
+        assert reason.value in app.error[0].value
+    assert (
+        f"model_selection_failed reason={reason.value if reason else 'unexpected'}" in caplog.text
+    )
     assert "do-not-display" not in app.error[0].value + caplog.text
     assert candidate_view.state["generation"] == 0
 
 
+@pytest.mark.parametrize(
+    "reason, message",
+    [
+        (None, "Candidate training could not complete"),
+        (GovernanceReason.REVIEWS_CHANGED, "Review decisions changed"),
+        (GovernanceReason.ACTIVE_MODEL_CHANGED, "The active model changed during training"),
+        (GovernanceReason.DATASET_CHANGED, "The dataset changed during training or evaluation"),
+    ],
+)
 def test_failed_candidate_fit_is_safe_and_does_not_clear_active_model(
-    app_workspace, isolated_review_store, monkeypatch, caplog
+    app_workspace, isolated_review_store, monkeypatch, caplog, reason, message
 ):
     from src.model_registry import ModelRegistry
 
     isolated_review_store.review_snapshot.return_value = _consensus_rows(range(5))
-    fit = Mock(side_effect=ValueError("private-payload=do-not-display"))
+    payload = "Review decisions changed: private-payload=do-not-display"
+    fit = Mock(side_effect=GovernanceError(reason, payload) if reason else ValueError(payload))
     monkeypatch.setattr(ModelRegistry, "create_candidate", fit)
     app = _candidate_app()
     app.button(key="retrain_model").click().run()
@@ -890,6 +936,10 @@ def test_failed_candidate_fit_is_safe_and_does_not_clear_active_model(
         == "error"
     )
     assert "do-not-display" not in app.error[0].value + caplog.text
+    assert message in app.error[0].value
+    if reason:
+        assert reason.value in app.error[0].value
+    assert f"candidate_failed reason={reason.value if reason else 'unexpected'}" in caplog.text
     assert app.session_state.last_retrain_report is None
 
 

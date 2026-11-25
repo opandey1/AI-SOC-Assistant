@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 from src import model_registry
+from src.governance_errors import GovernanceError, GovernanceReason
 from src.model_registry import ModelRegistry, acceptance_reasons
 from src.model_store import ModelArtifact, save_model_artifact
 from src.retrain import RetrainingReport, file_digest
@@ -122,10 +123,12 @@ def test_empty_registry_operations_do_not_create_storage(registry, root_exists):
     assert registry.state() == dict(active=None, previous=None, generation=0)
     assert registry.active_path() is None
     assert registry.candidates() == registry.history() == []
-    with pytest.raises(ValueError, match="Model registry has not been initialized"):
+    with pytest.raises(GovernanceError, match="Model registry has not been initialized") as error:
         registry.report("a" * 32)
-    with pytest.raises(ValueError, match="Model registry has not been initialized"):
+    assert error.value.reason is GovernanceReason.REGISTRY_NOT_INITIALIZED
+    with pytest.raises(GovernanceError, match="Model registry has not been initialized") as error:
         registry.rollback(expected_generation=0, actor="alice")
+    assert error.value.reason is GovernanceReason.REGISTRY_NOT_INITIALIZED
     assert not registry.database.exists()
     assert registry.root.exists() is root_exists
     assert registry.state() == dict(active=None, previous=None, generation=0)
@@ -307,10 +310,12 @@ def test_promotion_rechecks_active_reference_metrics(registry, report):
 def test_stale_operator_and_candidate_cannot_change_selection(registry, report):
     first, second = register(registry, report), register(registry, report)
     registry.promote(first, expected_generation=0, actor="alice")
-    with pytest.raises(ValueError, match="Stale model selection"):
+    with pytest.raises(GovernanceError, match="Stale model selection") as error:
         registry.rollback(expected_generation=0, actor="bob")
-    with pytest.raises(ValueError, match="reference is stale"):
+    assert error.value.reason is GovernanceReason.STALE_SELECTION
+    with pytest.raises(GovernanceError, match="reference is stale") as error:
         registry.promote(second, expected_generation=1, actor="bob")
+    assert error.value.reason is GovernanceReason.STALE_CANDIDATE_REFERENCE
     assert registry.state()["active"] == first and len(registry.history()) == 1
 
 
@@ -399,8 +404,9 @@ def test_changed_review_snapshot_blocks_promotion_without_changing_selection(reg
     candidate = register(registry, report)
     store = FeedbackStore(registry.root.parent / "reviews.db")
     store.record_review(1, disposition="needs_investigation", reviewed_by="alice")
-    with pytest.raises(ValueError, match="Review decisions changed"):
+    with pytest.raises(GovernanceError, match="Review decisions changed") as error:
         registry.promote(candidate, expected_generation=0, actor="alice")
+    assert error.value.reason is GovernanceReason.REVIEWS_CHANGED
     assert registry.state()["generation"] == 0 and registry.history() == []
     # The failed promotion must release the feedback lock.
     store.record_review(1, disposition="false_positive", corrected_class="dos", reviewed_by="alice")

@@ -20,6 +20,7 @@ from sklearn.metrics import accuracy_score, f1_score, recall_score
 
 from src.feedback import FeedbackStore
 from src.feedback_policy import FeedbackPolicy, build_cohort, weight_plan
+from src.governance_errors import GovernanceError, GovernanceReason
 from src.ingest import LABEL_MAP
 from src.model_store import create_model_artifact, save_model_artifact
 
@@ -274,13 +275,19 @@ def retrain_from_feedback(
     model_version = training_time.strftime("feedback-%Y%m%dT%H%M%SZ-") + uuid4().hex
     output_path = Path(output_model)
     if dataset_hashes != {"train": file_digest(paths.train), "test": file_digest(paths.test)}:
-        raise ValueError("Dataset files changed during retraining; no artifact was saved.")
+        raise GovernanceError(
+            GovernanceReason.DATASET_CHANGED,
+            "Dataset files changed during retraining; no artifact was saved.",
+        )
     if (
         cohort
         and build_cohort(store.review_snapshot(), feedback_policy).snapshot_sha256
         != cohort.snapshot_sha256
     ):
-        raise ValueError("Review decisions changed during retraining; no artifact was saved.")
+        raise GovernanceError(
+            GovernanceReason.REVIEWS_CHANGED,
+            "Review decisions changed during retraining; no artifact was saved.",
+        )
     provenance = {
         "datasets": dataset_hashes,
         "code": _code_provenance(project_root),

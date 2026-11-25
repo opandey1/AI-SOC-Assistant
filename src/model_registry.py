@@ -15,6 +15,7 @@ import shutil
 import sqlite3
 from uuid import uuid4
 
+from src.governance_errors import GovernanceError, GovernanceReason
 from src.retrain import (
     MINIMUM_FEEDBACK_EXAMPLES,
     classification_metrics,
@@ -92,8 +93,9 @@ class ModelRegistry:
                 )
             except sqlite3.OperationalError:
                 if not self.database.exists():
-                    raise ValueError(
-                        "Model registry has not been initialized. Train a candidate first."
+                    raise GovernanceError(
+                        GovernanceReason.REGISTRY_NOT_INITIALIZED,
+                        "Model registry has not been initialized. Train a candidate first.",
                     ) from None
                 raise
         connection.row_factory = sqlite3.Row
@@ -229,7 +231,10 @@ class ModelRegistry:
                 artifact = load_model_artifact(reference_path)
                 dataset = load_nsl_kdd(train_path, test_path)
                 if file_digest(dataset.paths.test) != report.provenance["datasets"]["test"]:
-                    raise ValueError("Evaluation dataset changed during candidate comparison.")
+                    raise GovernanceError(
+                        GovernanceReason.DATASET_CHANGED,
+                        "Evaluation dataset changed during candidate comparison.",
+                    )
                 _, scaled = transform_connections(dataset.test[MODEL_INPUT_COLUMNS], artifact)
                 labels = dataset.test[TARGET_COLUMN].map(LABEL_MAP).to_numpy()
                 reference_metrics = classification_metrics(
@@ -241,8 +246,9 @@ class ModelRegistry:
                     f"active_{reason}" for reason in acceptance_reasons(payload, reference_metrics)
                 )
             if self.state() != state or self._reference_hash() != reference_hash:
-                raise ValueError(
-                    "Active model changed during candidate training; retry with a fresh reference."
+                raise GovernanceError(
+                    GovernanceReason.ACTIVE_MODEL_CHANGED,
+                    "Active model changed during candidate training; retry with a fresh reference.",
                 )
             (stage / "report.json").write_text(
                 json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -295,7 +301,10 @@ class ModelRegistry:
                 ).fetchone()
             )
             if state["generation"] != expected_generation:
-                raise ValueError("Stale model selection; refresh before changing the active model.")
+                raise GovernanceError(
+                    GovernanceReason.STALE_SELECTION,
+                    "Stale model selection; refresh before changing the active model.",
+                )
             old = state["active"]
             if rollback:
                 if state["generation"] == 0:
@@ -324,7 +333,10 @@ class ModelRegistry:
                     )
                 cohort = guards.enter_context(locked_cohort(manifest["feedback_database"], policy))
                 if cohort.snapshot_sha256 != governance["cohort"]["snapshot_sha256"]:
-                    raise ValueError("Review decisions changed; train a new candidate.")
+                    raise GovernanceError(
+                        GovernanceReason.REVIEWS_CHANGED,
+                        "Review decisions changed; train a new candidate.",
+                    )
                 weights = governance["weights"]
                 if len(cohort.examples) < MINIMUM_FEEDBACK_EXAMPLES or weights != weight_plan(
                     cohort,
@@ -340,7 +352,10 @@ class ModelRegistry:
                 if not manifest["accepted"] or reasons:
                     raise ValueError("Candidate failed the evaluation non-regression check.")
                 if manifest["parent_generation"] != state["generation"]:
-                    raise ValueError("Candidate reference is stale; train a new candidate.")
+                    raise GovernanceError(
+                        GovernanceReason.STALE_CANDIDATE_REFERENCE,
+                        "Candidate reference is stale; train a new candidate.",
+                    )
                 current = (
                     (self.root / old / "model.joblib")
                     if old

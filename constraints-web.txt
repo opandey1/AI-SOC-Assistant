@@ -1,0 +1,12 @@
+# ASGI serving stack from green PR #5 CI run 45646186345.
+# Refresh with the Python 3.10-3.12, Chromium, and Docker checks together.
+anyio==4.16.0
+h11==0.16.0
+httptools==0.9.0
+itsdangerous==2.2.0
+python-multipart==0.0.32; python_version == "3.10"
+python-multipart==0.0.34; python_version >= "3.11"
+starlette==1.7.0; python_version == "3.10"
+starlette==1.10.0; python_version >= "3.11"
+uvicorn==0.54.0
+websockets==16.1.1

@@ -1,3 +1,5 @@
+-c constraints-web.txt
+
 confluent-kafka==2.15.0
 imbalanced-learn==0.12.4
 joblib==1.5.2
