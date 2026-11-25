@@ -80,15 +80,18 @@ def build_cohort(rows: list[dict], policy: FeedbackPolicy = FeedbackPolicy()) ->
     )
     summary = dict(eligible=0, conflict=0, awaiting_consensus=0, excluded=0)
     for ticket_id, reviewers in sorted(latest.items()):
-        votes = list(reviewers.values())
-        targets = {(row["disposition"], row["corrected_class"]) for row in votes}
-        target = votes[0]["corrected_class"]
-        if len(targets) > 1:
+        votes = {
+            label: (
+                row["disposition"],
+                row["corrected_class"] if row["disposition"] == "false_positive" else None,
+            )
+            for label, row in reviewers.items()
+        }
+        disposition, target = next(iter(votes.values()))
+        if len(set(votes.values())) > 1:
             status = "conflict"
         elif (
-            "" in reviewers
-            or votes[0]["disposition"] != "false_positive"
-            or target not in CORRECTABLE_CLASSES
+            "" in reviewers or disposition != "false_positive" or target not in CORRECTABLE_CLASSES
         ):
             status = "excluded"
         elif len(reviewers) < policy.minimum_reviewers:
@@ -96,7 +99,7 @@ def build_cohort(rows: list[dict], policy: FeedbackPolicy = FeedbackPolicy()) ->
         else:
             status = "eligible"
         summary[status] += 1
-        review_ids = tuple(sorted(row["review_id"] for row in votes))
+        review_ids = tuple(sorted(row["review_id"] for row in reviewers.values()))
         labels = tuple(sorted(reviewers))
         decisions.append(
             dict(
@@ -106,28 +109,27 @@ def build_cohort(rows: list[dict], policy: FeedbackPolicy = FeedbackPolicy()) ->
                 reviewers=list(labels),
             )
         )
-        for label, vote in reviewers.items():
+        for label, vote in votes.items():
             stats[label]["tickets"] += 1
             stats[label][status] += 1
-            for other, peer in reviewers.items():
+            for other, peer in votes.items():
                 if other != label:
                     stats[label]["peer_comparisons"] += 1
-                    stats[label]["peer_agreements"] += int(
-                        (vote["disposition"], vote["corrected_class"])
-                        == (peer["disposition"], peer["corrected_class"])
-                    )
+                    stats[label]["peer_agreements"] += int(vote == peer)
         if status == "eligible":
+            first_review = next(iter(reviewers.values()))
             examples.append(
                 FeedbackExample(
                     ticket_id=ticket_id,
-                    event_id=votes[0]["event_id"],
-                    raw_record=votes[0]["raw_record"],
+                    event_id=first_review["event_id"],
+                    raw_record=first_review["raw_record"],
                     corrected_class=target,
                     review_id=max(review_ids),
                     review_ids=review_ids,
                     reviewers=labels,
                 )
             )
+        # Preserve raw review fields in the fingerprint used for promotion freshness.
         snapshot.extend({**row, "reviewed_by": label} for label, row in sorted(reviewers.items()))
     for label, counts in sorted(stats.items()):
         comparisons = counts["peer_comparisons"]

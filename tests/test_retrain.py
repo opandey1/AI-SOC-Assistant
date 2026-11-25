@@ -550,6 +550,51 @@ def test_candidate_fit_failure_removes_stage_and_never_registers(workspace, monk
     assert not list(registry.root.iterdir())
 
 
+@pytest.mark.parametrize(
+    "change, error",
+    [
+        ("evaluation", "Evaluation dataset changed during candidate comparison"),
+        ("selection", "Active model changed during candidate training"),
+    ],
+)
+def test_candidate_publication_rejects_changes_after_fitting(workspace, monkeypatch, change, error):
+    from src.model_registry import ModelRegistry
+
+    for index in range(5):
+        workspace.consensus(workspace.ticket(index=index))
+    registry = ModelRegistry(workspace.root / "registry")
+    options = dict(
+        database_path=workspace.store.path,
+        train_path=workspace.train_path,
+        test_path=workspace.test_path,
+        use_smote=False,
+    )
+    active = registry.create_candidate(**options)
+    expected_state = registry.promote(active["id"], expected_generation=0, actor="operator")
+    expected_history = registry.history()
+    model_path = registry.active_path()
+    original_model = model_path.read_bytes()
+
+    def change_after_fit(**kwargs):
+        nonlocal expected_state, expected_history
+        report = retrain_from_feedback(**kwargs)
+        if change == "evaluation":
+            with workspace.test_path.open("a", encoding="utf-8") as output:
+                output.write("\n")
+        else:
+            expected_state = registry.rollback(expected_generation=1, actor="other-operator")
+            expected_history = registry.history()
+        return report
+
+    monkeypatch.setattr("src.model_registry.retrain_from_feedback", change_after_fit)
+    with pytest.raises(ValueError, match=error):
+        registry.create_candidate(**options)
+    assert registry.state() == expected_state and registry.history() == expected_history
+    assert registry.candidates() == [active]
+    assert model_path.read_bytes() == original_model
+    assert not list(registry.root.glob(".stage-*"))
+
+
 def test_dataset_mutation_during_fit_prevents_artifact_save(workspace, monkeypatch):
     workspace.review(workspace.ticket())
     original = train.train_random_forest

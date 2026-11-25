@@ -86,6 +86,27 @@ def test_unanimous_non_corrections_are_excluded(disposition):
     assert build_cohort(rows).summary["excluded"] == 1
 
 
+@pytest.mark.parametrize("disposition", ["confirmed_attack", "needs_investigation"])
+def test_non_correction_votes_ignore_class_for_agreement_but_keep_snapshot(disposition):
+    rows = votes()
+    for row in rows:
+        row.update(disposition=disposition, corrected_class=None)
+    clean = build_cohort(rows)
+    rows[1]["corrected_class"] = "dos"
+    historical = build_cohort(rows)
+
+    assert not historical.examples
+    assert (
+        historical.summary
+        == clean.summary
+        == dict(eligible=0, conflict=0, awaiting_consensus=0, excluded=1)
+    )
+    assert historical.reviewers == clean.reviewers
+    assert all(item["peer_agreement_rate"] == 1 for item in historical.reviewers)
+    assert historical.snapshot_sha256 != clean.snapshot_sha256
+    assert rows[1]["corrected_class"] == "dos"
+
+
 @pytest.mark.parametrize(
     "reviewers,target", [(("", "bob"), "normal"), (("alice", "bob"), "unknown")]
 )

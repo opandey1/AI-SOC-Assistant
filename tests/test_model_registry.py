@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 
+from src import model_registry
 from src.model_registry import ModelRegistry, acceptance_reasons
 from src.model_store import ModelArtifact, save_model_artifact
 from src.retrain import RetrainingReport, file_digest
@@ -51,7 +52,7 @@ def registry(tmp_path, monkeypatch):
     return ModelRegistry(tmp_path / "registry")
 
 
-def register(registry, report, *, parent=0, reference=None):
+def register(registry, report, *, parent=0, reference=None, reference_metrics=None):
     """Fixture bundles are not training/evaluation evidence; separate real-fit tests are."""
     store = FeedbackStore(registry.root.parent / "reviews.db")
     analysis = SimpleNamespace(
@@ -104,7 +105,7 @@ def register(registry, report, *, parent=0, reference=None):
         model_version=report["model_version"],
         parent_generation=parent,
         reference_sha256=reference,
-        active_reference_metrics=None,
+        active_reference_metrics=reference_metrics,
         accepted=not reasons,
         reasons=reasons,
         sha256={name: file_digest(directory / name) for name in ("model.joblib", "report.json")},
@@ -114,11 +115,27 @@ def register(registry, report, *, parent=0, reference=None):
     return candidate_id
 
 
-def test_empty_registry_reads_do_not_create_storage(registry):
+@pytest.mark.parametrize("root_exists", [False, True])
+def test_empty_registry_operations_do_not_create_storage(registry, root_exists):
+    if root_exists:
+        registry.root.mkdir()
     assert registry.state() == dict(active=None, previous=None, generation=0)
     assert registry.active_path() is None
     assert registry.candidates() == registry.history() == []
-    assert not registry.root.exists()
+    with pytest.raises(ValueError, match="Model registry has not been initialized"):
+        registry.report("a" * 32)
+    with pytest.raises(ValueError, match="Model registry has not been initialized"):
+        registry.rollback(expected_generation=0, actor="alice")
+    assert not registry.database.exists()
+    assert registry.root.exists() is root_exists
+    assert registry.state() == dict(active=None, previous=None, generation=0)
+
+
+def test_initialized_registry_can_be_reopened_at_uri_special_path(tmp_path, report):
+    registry = ModelRegistry(tmp_path / "model registry #1%")
+    candidate = register(registry, report)
+    assert registry.report(candidate) == report
+    assert registry.promote(candidate, expected_generation=0, actor="alice")["active"] == candidate
 
 
 @pytest.mark.parametrize("metric", ["accuracy", "macro_f1"])
@@ -181,6 +198,16 @@ def test_promotion_and_rollback_are_explicit_and_audited(registry, report):
     ]
 
 
+def test_rollback_before_first_promotion_preserves_registry(registry, report):
+    candidate = register(registry, report)
+    before = registry.state()
+    history = registry.history()
+    with pytest.raises(ValueError, match="No previous model selection"):
+        registry.rollback(expected_generation=0, actor="alice")
+    assert registry.state() == before and registry.history() == history
+    assert registry.report(candidate) == report
+
+
 def test_legacy_first_promotion_has_an_immutable_rollback_snapshot(registry, report, tmp_path):
     legacy = tmp_path / "legacy.joblib"
     legacy.write_bytes(b"trusted-local-legacy-test-fixture")
@@ -192,6 +219,40 @@ def test_legacy_first_promotion_has_an_immutable_rollback_snapshot(registry, rep
     registry.rollback(expected_generation=1, actor="alice")
     assert registry.active_path() == registry.root / previous / "model.joblib"
     assert registry.active_path().read_bytes() == b"trusted-local-legacy-test-fixture"
+
+
+def test_legacy_snapshot_cannot_be_promoted(registry, report, tmp_path):
+    legacy = tmp_path / "legacy.joblib"
+    legacy.write_bytes(b"trusted-local-legacy-test-fixture")
+    registry.legacy_model = legacy
+    candidate = register(registry, report, reference=file_digest(legacy))
+    before = registry.promote(candidate, expected_generation=0, actor="alice")
+    history = registry.history()
+    with pytest.raises(ValueError, match="Legacy snapshots are rollback targets"):
+        registry.promote(before["previous"], expected_generation=1, actor="alice")
+    assert registry.state() == before and registry.history() == history
+
+
+def test_legacy_model_changed_during_snapshot_cannot_be_promoted(
+    registry, report, tmp_path, monkeypatch
+):
+    legacy = tmp_path / "legacy.joblib"
+    legacy.write_bytes(b"original-reference")
+    registry.legacy_model = legacy
+    candidate = register(registry, report, reference=file_digest(legacy))
+    before = registry.state()
+    history = registry.history()
+    copyfile = model_registry.shutil.copyfile
+
+    def change_during_copy(source, destination):
+        source.write_bytes(b"changed-during-snapshot")
+        return copyfile(source, destination)
+
+    monkeypatch.setattr(model_registry.shutil, "copyfile", change_during_copy)
+    with pytest.raises(ValueError, match="Legacy model changed during snapshot"):
+        registry.promote(candidate, expected_generation=0, actor="alice")
+    assert registry.state() == before and registry.history() == history
+    assert [item["id"] for item in registry.candidates()] == [candidate]
 
 
 @pytest.mark.parametrize("file", ["model.joblib", "report.json"])
@@ -217,6 +278,30 @@ def test_rejected_candidate_cannot_promote(registry, report):
     with pytest.raises(ValueError, match="non-regression"):
         registry.promote(candidate, expected_generation=0, actor="alice")
     assert registry.state()["generation"] == 0
+
+
+def test_promotion_rechecks_active_reference_metrics(registry, report):
+    active = register(registry, report)
+    before = registry.promote(active, expected_generation=0, actor="alice")
+    history = registry.history()
+    reference_metrics = dict(
+        accuracy=report["updated_accuracy"],
+        macro_f1=report["updated_macro_f1"],
+        recall=report["updated_per_class_recall"],
+    )
+    # The fixture's acceptance flag reflects the baseline check alone.
+    report.update(baseline_accuracy=0.8, updated_accuracy=0.9)
+    candidate = register(
+        registry,
+        report,
+        parent=before["generation"],
+        reference=file_digest(registry.active_path()),
+        reference_metrics=reference_metrics,
+    )
+    assert registry.candidate(candidate)["accepted"]
+    with pytest.raises(ValueError, match="non-regression"):
+        registry.promote(candidate, expected_generation=before["generation"], actor="alice")
+    assert registry.state() == before and registry.history() == history
 
 
 def test_stale_operator_and_candidate_cannot_change_selection(registry, report):

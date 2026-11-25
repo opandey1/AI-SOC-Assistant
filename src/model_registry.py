@@ -84,7 +84,18 @@ class ModelRegistry:
     def _connect(self, *, initialize=False):
         if initialize:
             self.root.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database, timeout=10)
+            connection = sqlite3.connect(self.database, timeout=10)
+        else:
+            try:
+                connection = sqlite3.connect(
+                    self.database.as_uri() + "?mode=rw", uri=True, timeout=10
+                )
+            except sqlite3.OperationalError:
+                if not self.database.exists():
+                    raise ValueError(
+                        "Model registry has not been initialized. Train a candidate first."
+                    ) from None
+                raise
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA busy_timeout = 10000")
         if initialize:
