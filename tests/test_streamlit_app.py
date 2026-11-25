@@ -24,6 +24,7 @@ from __future__ import annotations
 
 
 import json
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -204,9 +205,15 @@ def test_triage_empty_state_does_not_load_runtime(triage_runtime):
 
 @pytest.mark.parametrize("mode", ["Dataset row", "JSON record"])
 @pytest.mark.parametrize("alert", [False, True])
-def test_triage_single_connection_renders_clear_and_alert(triage_runtime, mode, alert):
+@pytest.mark.parametrize(
+    "source_ip, normalized_ip", [("  2001:0DB8:0:0::47  ", "2001:db8::47"), ("", "unknown")]
+)
+def test_triage_single_connection_renders_clear_and_alert(
+    triage_runtime, mode, alert, source_ip, normalized_ip
+):
     app = _run()
     app.segmented_control(key="triage_input").set_value(mode).run()
+    app.text_input(key="triage_source_ip").set_value(source_ip)
     if mode == "Dataset row":
         app.number_input(key="triage_row").set_value(1 if alert else 0)
     else:
@@ -214,6 +221,8 @@ def test_triage_single_connection_renders_clear_and_alert(triage_runtime, mode, 
         app.text_area(key="triage_json").set_value(json.dumps(record))
     _submit_triage(app)
     assert app.session_state.last_analysis.verdict == ("alert" if alert else "normal")
+    assert triage_runtime.scorer.call_args.kwargs["source_ip"] == normalized_ip
+    assert app.session_state.last_event["source_ip"] == normalized_ip
     assert ("Why this was flagged" if alert else "Why this was cleared") in _html(app)
     assert "SHAP evidence for Random Forest class" in _html(app)
     assert not app.error
@@ -227,6 +236,27 @@ def test_triage_single_connection_renders_clear_and_alert(triage_runtime, mode, 
         assert "NO TICKET GENERATED" in _html(app)
         assert not app.get("download_button")
     assert "test-triage-runtime" in " ".join(c.value for c in app.caption)
+
+
+@pytest.mark.parametrize("mode", ["Dataset row", "JSON record"])
+@pytest.mark.parametrize("row_index", [0, 1])
+def test_invalid_source_ip_rejected_before_scoring(triage_runtime, mode, row_index):
+    app = _run()
+    app.segmented_control(key="triage_input").set_value(mode).run()
+    app.text_input(key="triage_source_ip").set_value("10.0.0.300")
+    if mode == "Dataset row":
+        app.number_input(key="triage_row").set_value(row_index)
+    else:
+        record = triage_runtime.frame.iloc[row_index][MODEL_INPUT_COLUMNS].to_dict()
+        app.text_area(key="triage_json").set_value(json.dumps(record))
+
+    _submit_triage(app)
+    assert "Invalid connection input: A valid source IP address is required." in app.error[0].value
+    assert "10.0.0.300" not in app.error[0].value
+    assert app.session_state.last_analysis is None
+    triage_runtime.build.assert_not_called()
+    triage_runtime.scorer.assert_not_called()
+    triage_runtime.store.log_analysis.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -668,6 +698,67 @@ def test_review_queue_row_changes_reset_table_identity(app_workspace, review_tic
     _assert_clean(app, "reordered queue")
     assert app.dataframe[0].key != previous_table_key
     assert not app.radio
+
+
+def test_review_submit_keeps_original_ticket_when_a_new_alert_arrives(
+    app_workspace, review_tickets
+):
+    app = _select_ticket(_review_app())
+    original_table = app.dataframe[0].key
+    app.radio[0].set_value("false_positive")
+    _select_ticket(app)
+    app.pills[0].set_value("r2l")
+    app.main.text_input[0].set_value("alice")
+    app.text_area[0].set_value("Original ticket only")
+    tickets = review_tickets.list_tickets.return_value
+    tickets.insert(0, replace(tickets[0], id=9, event_id="new-alert"))
+
+    app.button[-1].click().run()
+    _assert_clean(app, "review submit with reordered queue")
+    assert app.dataframe[0].key != original_table
+    assert not app.radio
+    assert app.get("toast")[0].value == "Review saved"
+    review_tickets.record_review.assert_called_once_with(
+        7,
+        disposition="false_positive",
+        corrected_class="r2l",
+        analyst_notes="Original ticket only",
+        reviewed_by="alice",
+    )
+    app.run()
+    assert review_tickets.record_review.call_count == 1
+
+
+@pytest.mark.parametrize("changed", ["database", "workspace", "missing_ticket", "write_error"])
+def test_review_submit_explains_why_save_failed(app_workspace, review_tickets, caplog, changed):
+    app = _select_ticket(_review_app())
+    app.radio[0].set_value("confirmed_attack")
+    _select_ticket(app)
+    app.main.text_input[0].set_value("alice")
+    if changed == "database":
+        app.sidebar.text_input[0].set_value("other-review-database.db")
+        message = "The review workspace or database changed"
+    elif changed == "workspace":
+        app.segmented_control[0].set_value("Triage")
+        message = "The review workspace or database changed"
+    elif changed == "missing_ticket":
+        review_tickets.record_review.side_effect = KeyError("private-detail-do-not-display")
+        message = "The selected ticket no longer exists"
+    else:
+        review_tickets.record_review.side_effect = sqlite3.OperationalError(
+            "private-detail-do-not-display"
+        )
+        message = "Check the review database and try again"
+
+    app.button[-1].click().run()
+    _assert_clean(app, "review save rejected")
+    assert f"Review not saved. {message}" in app.error[0].value
+    assert "private-detail-do-not-display" not in app.error[0].value + caplog.text
+    assert not app.get("toast")
+    if changed in {"database", "workspace"}:
+        review_tickets.record_review.assert_not_called()
+    else:
+        assert review_tickets.record_review.call_args.args == (7,)
 
 
 def test_model_controls_are_disabled_without_a_reviewed_cohort(

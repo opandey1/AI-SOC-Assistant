@@ -16,6 +16,7 @@ import pandas as pd
 import streamlit as st
 
 from src import ui
+from src.agent import normalize_source_ip
 from src.feedback import CORRECTABLE_CLASSES, REVIEW_DISPOSITIONS, FeedbackStore
 from src.governance_errors import GovernanceError, GovernanceReason
 from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resolve_dataset_paths
@@ -230,6 +231,38 @@ def reset_triage_result() -> None:
         st.session_state[key] = value
 
 
+def remember_review_target(database: str, ticket_id: int, review_key: str) -> None:
+    # The submit callback runs before the queue refresh can clear the row selection.
+    st.session_state.pending_review = (database, ticket_id, review_key)
+
+
+def save_review(store: FeedbackStore, ticket_id: int, review_key: str) -> str | None:
+    disposition = st.session_state.get(f"{review_key}_disposition")
+    corrected_class = st.session_state.get(f"{review_key}_corrected_class")
+    analyst = st.session_state.get(f"{review_key}_analyst") or ""
+    notes = st.session_state.get(f"{review_key}_notes")
+    if disposition not in REVIEW_DISPOSITIONS:
+        return "Choose a disposition before recording a review."
+    if disposition == "false_positive" and corrected_class not in CORRECTABLE_CLASSES:
+        return "Choose a corrected class for the false-positive review."
+    if not analyst.strip():
+        return "Enter an analyst name before recording a review."
+    try:
+        store.record_review(
+            ticket_id,
+            disposition=disposition,
+            corrected_class=corrected_class if disposition == "false_positive" else None,
+            analyst_notes=notes,
+            reviewed_by=analyst,
+        )
+    except KeyError:
+        return "Review not saved. The selected ticket no longer exists. Refresh the queue and try again."
+    except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+        LOGGER.warning("review_save_failed type=%s", type(exc).__name__)
+        return "Review not saved. Check the review database and try again."
+    return None
+
+
 for key, default_value in {
     "last_analysis": None,
     "last_ticket_id": None,
@@ -242,6 +275,8 @@ for key, default_value in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default_value
+
+pending_review = st.session_state.pop("pending_review", None)
 
 try:
     dataset_paths = resolve_dataset_paths(search_roots=[PROJECT_ROOT, Path.cwd()])
@@ -294,9 +329,8 @@ result_database = str(Path(database_value).resolve())
 if st.session_state.get("triage_database") != result_database:
     reset_triage_result()
     st.session_state.triage_database = result_database
-store = FeedbackStore(Path(database_value))
+store = FeedbackStore(Path(result_database))
 active_model_path = str(selected_artifact) if model_mode == "Retrained" else None
-queue_summary = store.summary()
 
 st.html(
     ui.topbar(
@@ -312,6 +346,21 @@ view = st.segmented_control(
     required=True,
     width="stretch",
 )
+
+review_error = None
+if pending_review is not None:
+    review_database, ticket_id, review_key = pending_review
+    if view != "Review queue" or review_database != result_database:
+        review_error = (
+            "Review not saved. The review workspace or database changed. "
+            "Reselect the ticket and try again."
+        )
+    else:
+        review_error = save_review(store, ticket_id, review_key)
+        if review_error is None:
+            st.toast("Review saved", icon=":material/check_circle:")
+    if review_error and view != "Review queue":
+        st.error(review_error)
 
 if view == "Triage":
     with st.container(key="triage_workspace", gap=18):
@@ -408,6 +457,8 @@ if view == "Triage":
             with st.status("Validating connection input", expanded=True) as status:
                 try:
                     event = None
+                    if input_mode != "Live replay":
+                        source_ip = normalize_source_ip(source_ip)
                     if input_mode == "JSON record":
                         record = json.loads(raw_json)
                         if not isinstance(record, dict):
@@ -537,6 +588,7 @@ if view == "Triage":
             )
 
 elif view == "Review queue":
+    queue_summary = store.summary()
     with st.container(key="review_workspace", gap=18):
         st.header("Analyst review queue")
         st.caption(
@@ -579,7 +631,7 @@ elif view == "Review queue":
         )
         tickets = store.list_tickets(review_state=review_state, limit=200)
         # Scope drafts and row selection to the database as well as the ticket/filter.
-        database_scope = sha256(str(Path(database_value).resolve()).encode()).hexdigest()[:16]
+        database_scope = sha256(result_database.encode()).hexdigest()[:16]
         queue_revision = sha256(
             ",".join(str(ticket.id) for ticket in tickets).encode()
         ).hexdigest()[:16]
@@ -630,6 +682,8 @@ elif view == "Review queue":
 
         with detail_col, st.container(key="review_detail", gap=14):
             st.html(ui.panel_header("Analyst disposition"))
+            if review_error:
+                st.error(review_error)
             if not selected_rows or not 0 <= selected_rows[0] < len(tickets):
                 st.html(
                     ui.empty_state(
@@ -698,7 +752,7 @@ elif view == "Review queue":
                 # Disposition reruns immediately; draft fields are batched until Save.
                 with st.form(f"{review_key}_form", border=False):
                     with st.container(key="review_corrected_class"):
-                        corrected_class = st.pills(
+                        st.pills(
                             "Corrected class",
                             CORRECTABLE_CLASSES,
                             default="normal",
@@ -707,38 +761,18 @@ elif view == "Review queue":
                             format_func=str.upper,
                             disabled=disposition != "false_positive",
                         )
-                    analyst = st.text_input("Analyst", key=f"{review_key}_analyst")
-                    notes = st.text_area("Notes", key=f"{review_key}_notes", height=100)
-                    review_submitted = st.form_submit_button(
+                    st.text_input("Analyst", key=f"{review_key}_analyst")
+                    st.text_area("Notes", key=f"{review_key}_notes", height=100)
+                    st.form_submit_button(
                         "Record review",
                         type="primary",
                         icon=":material/save:",
                         disabled=disposition is None,
                         key=f"{review_key}_submit",
+                        on_click=remember_review_target,
+                        args=(result_database, selected.id, review_key),
                         width="stretch",
                     )
-                if review_submitted:
-                    if disposition not in REVIEW_DISPOSITIONS:
-                        st.error("Choose a disposition before recording a review.")
-                    elif (
-                        disposition == "false_positive"
-                        and corrected_class not in CORRECTABLE_CLASSES
-                    ):
-                        st.error("Choose a corrected class for the false-positive review.")
-                    elif not analyst.strip():
-                        st.error("Enter an analyst name before recording a review.")
-                    else:
-                        store.record_review(
-                            selected.id,
-                            disposition=disposition,
-                            corrected_class=(
-                                corrected_class if disposition == "false_positive" else None
-                            ),
-                            analyst_notes=notes,
-                            reviewed_by=analyst,
-                        )
-                        st.toast("Review saved", icon=":material/check_circle:")
-                        st.rerun()
 
                 with st.expander("Incident ticket", icon=":material/article:"):
                     st.markdown(selected.ticket_text)
