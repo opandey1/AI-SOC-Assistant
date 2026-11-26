@@ -187,11 +187,18 @@ Requested weights are scaled to a 10% total / 5% per-label share of base balance
 training weight. Free-text labels are not authenticated identities; peer agreement
 is not label accuracy or poisoning prevention. These caps apply to explicit sample
 weights, before RF class balancing; combined-weight/prior governance remains open.
+On the full NSL-KDD training set the caps first scale the explicit sample weights at a
+cohort of 1,347 consensus corrections at the default weight of 25 (562 at the maximum
+of 60); smaller cohorts keep their full requested sample weight.
 Candidates must not regress RF accuracy, fixed-five-class
 macro F1 or any class recall against the fresh baseline and, when present, the
 registry-selected artifact on the supplied evaluation file. Missing evaluation
 classes and altered bundles fail closed. Passing is not production certification
-or independent benchmark validation.
+or independent benchmark validation. On the real NSL-KDD files, two candidates with
+five correct corrections each lowered accuracy and some class recalls while raising
+macro F1, so this check rejected both. Choosing an acceptance rule for such trade-offs,
+after matched controls, is open work (see the
+[real-data review evidence](docs/candidate_governance.md#real-data-review-evidence)).
 
 Model Operations offers candidate reports, explicit operator/confirmation controls
 and selection history. Equivalent CLI promotion/rollback commands, migration from
@@ -333,17 +340,24 @@ CI also runs a dependency audit, deliberately **non-blocking**:
 python -m pip_audit --requirement requirements.txt
 ```
 
-It currently reports **17 known advisories across 7 packages**, all in the
-LangChain/LangGraph stack (4 pinned directly, 3 transitive). They are reported rather
-than silently suppressed, and the position is stated plainly rather than implied:
+On 26 November 2026 it reported **60 known advisories across 8 packages** (pip-audit
+2.7.3, Python 3.10 resolution of `requirements.txt`). An August 2026 run reported 17,
+all in the LangChain/LangGraph stack. They are reported rather than silently
+suppressed, and the position is stated plainly rather than implied:
 
 - **Not yet triaged for reachability.** No per-advisory assessment has been done, so
   this is an open risk, not a cleared one.
-- **Outside the default execution path.** `src/agent.py` imports `langchain`,
-  `langgraph`, and `requests` lazily, inside the functions that use them. The default
-  `template` provider renders tickets deterministically and imports none of the affected
-  packages — verified by asserting `sys.modules` after a template-mode ticket run. The
-  advisories become reachable only when an LLM provider is explicitly selected.
+- **Pillow 12.3.0: 42 advisories, on the default install path.** Streamlit and
+  Matplotlib depend on Pillow; the console has no image upload and the project code
+  does not import Pillow directly. Every one is fixed only in Pillow 13.0.0, which
+  Streamlit 1.62.0 excludes (`pillow<13`), so clearing them needs a Streamlit release
+  that accepts Pillow 13.
+- **LangChain/LangGraph stack: 18 advisories across 7 packages** (4 pinned directly,
+  3 transitive). `src/agent.py` imports `langchain`, `langgraph`, and `requests` lazily,
+  inside the functions that use them, and a template-mode ticket run imported none of
+  the affected packages (checked by asserting `sys.modules`). That observation covers
+  the default template path in that run only; it does not establish which vulnerable
+  paths are reachable, so this set also remains untriaged.
 - **Upgrade scope is unassessed, not blocked.** An earlier version of this section
   claimed the pinned `create_react_agent(..., state_modifier=...)` signature blocked any
   upgrade. That was measured and is wrong. On `langgraph` 0.3.15 with
@@ -358,7 +372,8 @@ than silently suppressed, and the position is stated plainly rather than implied
 The audit is non-blocking because `continue-on-error: true` is set on the CI step.
 `pip-audit` exits non-zero whenever advisories are found regardless of `--strict`;
 `--strict` governs dependency-*collection* failures, not vulnerability reporting. Making
-the step blocking would fail every build until the migration above is done.
+the step blocking would fail every build until the migration and the Pillow upgrade
+above are done.
 
 ## Repository Structure
 
@@ -371,7 +386,10 @@ src/
   agent.py        LangGraph SOC analyst agent and threat-intel tools
   evaluate.py     metrics, confusion matrix, and SHAP artifact generation
   feedback.py     SQLite ticket store and append-only analyst reviews
+  feedback_policy.py    reviewer agreement, conflict holdout and correction-weight caps
   model_store.py  atomic, versioned fitted-model artifacts
+  model_registry.py     candidate bundles, promotion, rollback and selection history
+  governance_errors.py  reason codes for actionable retraining and registry failures
   pipeline.py     runnable command-line pipeline
   retrain.py      analyst-feedback Random Forest update
   runtime.py      shared single-connection analysis runtime
@@ -385,10 +403,13 @@ scripts/
 streamlit_app.py  analyst triage, review queue, and model operations console
 .streamlit/config.toml  dark console theme applied to Streamlit's own widgets
 tests/            pytest unit tests for ingestion, preprocessing, SHAP, tickets, and console rendering
+browser_tests/    Playwright console checks against isolated app copies
+constraints-web.txt  pinned Streamlit web-stack versions for local, CI and Docker installs
 notebooks/
   AI_Powered_SOC_Assistant.ipynb
 docs/             architecture, sample ticket, and protocol-scoped evaluation artifacts
-.github/workflows/ci.yml   dependency checks, black, flake8, and pytest on Python 3.10-3.12
+.github/workflows/ci.yml   dependency checks, black, flake8, and pytest on Python 3.10-3.12;
+                           Chromium browser suite; non-root Docker build
 Dockerfile, docker-compose.yml
 ```
 
