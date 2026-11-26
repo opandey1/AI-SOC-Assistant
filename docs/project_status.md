@@ -35,9 +35,10 @@ repairs outside the review cycles. Two review findings were deferred and stay op
 - **E3 — acceptance rule.** On the real data, both candidates tried added five correct
   corrections whose own predictions stayed the same. Each lowered accuracy and some
   class recalls while raising macro F1, and the zero-tolerance check rejected both.
-  These are two observed trade-offs under the current rule. How much comparable fits
-  move the metrics has not been measured; matched controls should come before choosing
-  a tolerance or a paired test on changed predictions with per-class floors.
+  These are two observed trade-offs under the current rule. Matched controls measured
+  afterwards ([ADR-001](e3_acceptance_rule.md)) show that the current rule also rejects
+  every seed-only refit, and that the same cohort can pass or fail depending on the
+  seed. The owner's choice of rule is pending.
 - **G2 — weight caps.** The 10% total / 5% per-label caps are fractions of the 336,715
   oversampled training rows. They first scale the explicit sample weights at a cohort of
   1,347 consensus corrections at the default weight of 25 (562 at the maximum of 60;
@@ -82,8 +83,8 @@ included in its commits.
 
 - **E3:** functional real-fit tests and a local RF non-regression check exist; two
   real-data candidates were rejected under the zero-tolerance rule while macro F1 rose.
-  Matched controls, a revised acceptance rule, independent quality evaluation and
-  rare-class floors remain open.
+  Matched controls are measured (ADR-001); a revised acceptance rule, independent
+  quality evaluation and rare-class floors remain open.
 - **G2:** two-label unanimous agreement, conflict holdout and explicit sample-weight caps
   apply to governed candidates. At the real training size the caps only scale cohorts of
   1,347 or more corrections at weight 25, and they cover explicit sample weights only,
@@ -104,9 +105,9 @@ included in its commits.
 
 ## Next Work, In Order
 
-1. **Acceptance rule (E3):** run matched controls on the real files to measure how much
-   comparable fits move the metrics, then choose and implement an acceptance rule on
-   that evidence.
+1. **Acceptance rule (E3):** the matched controls are measured in
+   [ADR-001](e3_acceptance_rule.md); the owner chooses a rule from it, then it is
+   implemented.
 2. **Weight caps (G2):** make the budget bind at real data size and account for class
    balancing, with the UI and docs stating the real thresholds.
 3. **Dependencies (E2, E9, E4, E5):** triage the 60 advisories (the Pillow set needs a
