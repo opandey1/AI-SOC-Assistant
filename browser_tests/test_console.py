@@ -223,6 +223,9 @@ def test_review_validation_save_and_model_cohort(console):
     expect(
         page.get_by_text("Enter an analyst name before recording a review.", exact=True)
     ).to_be_visible()
+    settled(page)
+    # The rejected save must update the form in place; a remount drops keyboard focus.
+    expect(save).to_be_focused()
     assert rows(console, "SELECT COUNT(*) FROM reviews") == [(0,)]
     normal = pills.get_by_role("radio", name="NORMAL", exact=True)
     normal.focus()

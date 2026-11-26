@@ -682,8 +682,11 @@ elif view == "Review queue":
 
         with detail_col, st.container(key="review_detail", gap=14):
             st.html(ui.panel_header("Analyst disposition"))
+            # Always reserve the slot: inserting an error here only on failure shifts the
+            # form below it, so Streamlit remounts the form and keyboard focus is lost.
+            error_slot = st.empty()
             if review_error:
-                st.error(review_error)
+                error_slot.error(review_error)
             if not selected_rows or not 0 <= selected_rows[0] < len(tickets):
                 st.html(
                     ui.empty_state(
