@@ -1,8 +1,11 @@
 # ADR-001: Candidate Acceptance Rule (E3)
 
-**Status:** Proposed. Needs the owner's decision; the production gate stays unchanged
-until then.
-**Date:** 26 November 2026
+**Status:** Accepted by the owner on 27 November 2026: Option C with a deployed-model
+check (see [Decisions](#decisions-owner-27-november-2026)). The protocol is
+[`e3_protocol.md`](e3_protocol.md), draft 8, awaiting review. Switching it on requires
+checker fixtures, a pilot on the hold-out and a confirmatory run on new data (H1).
+Nothing is implemented, and today's zero-tolerance gate stays in force.
+**Date:** 26 November 2026 (measurements); 27 November 2026 (decisions and protocol)
 **Deciders:** repository owner; reviewed under `AGENT-PROTOCOL.md`
 
 ## Context
@@ -202,24 +205,98 @@ are in place. The numbers in this record are exploratory starting points, not li
 - **Revisit:** limits after more seeds and cohorts; rules for tiny classes; how the
   active model, which is one saved fit, enters the averaged part of the comparison.
 
-## Decision Needed
+## Decisions (owner, 27 November 2026)
 
-1. Which option: A, B, C (with the artifact guard) or D.
-2. Class-specific acceptable-loss limits, set before evaluation, especially for U2R.
-3. The deployment seed and the artifact-level limits against the fresh baseline and the
-   active model.
-4. The independent evaluation data for the final check. It cannot be KDDTest+ or a
-   split of it, because KDDTest+ informed this record; the protocol is frozen before
-   that check.
+1. **Rule:** Option C, the five-seed paired average plus a check on the deployed model.
+2. **Class losses:** size-scaled allowances from seed calibration, capped by fixed
+   maximum losses: accuracy 1 point; macro F1 and normal, DoS and probe recall 2 points;
+   R2L recall 3 points.
+3. **U2R:** row by row for the deployed model. It must still catch every U2R row that the
+   fresh baseline and the live model catch, where "catch" means the Random Forest
+   predicts U2R. The five-seed average is not used for U2R.
+4. **Deployed model:** seed 42, checked against both the fresh seed-42 baseline and the
+   live model, with single-retrain allowances.
+5. **Evidence before switching on:** a fixed, stratified 20% hold-out of KDDTrain+,
+   set aside on 27 November 2026, for an in-distribution pilot, and then a confirmatory
+   run on a dataset not used so far, which waits for the H1 mapping work.
+6. **Pilot thresholds:** the average check must reject every candidate whose ten-seed
+   average loss exceeds a cap, and at most a quarter of acceptable candidates may fail
+   to pass. The minimum qualifying counts stay, and errors or inconclusive runs never
+   count as rejections. A miss is a pilot failure, not necessarily a code defect: the
+   oracle labels candidates with ten seeds while the gate decides with five different
+   ones, and an allowance below the cap guarantees rejection only when the same
+   measured loss is compared with both. If the two averages disagree, that is
+   investigated rather than assuming the checker is broken. A pilot pass does not
+   replace confirmation on new data.
 
-## Action Items After the Decision
+Decisions 2, 3 and 5 were refined the same day after Codex's review of the first
+protocol draft found the U2R wording, the role of the hold-out and the limits'
+meaning underspecified. Decision 6 answers Codex's request, in the review of draft 3,
+to confirm the pilot's pass thresholds with the owner.
 
-1. [ ] Implement the chosen rule in `src/retrain.py` and `src/model_registry.py`, with tests.
-2. [ ] Update the Model Operations text, README and governance docs.
-3. [ ] Calibrate seed sensitivity with fresh seeds, freeze the protocol, then confirm it
-   on the independent evaluation data. Replaying identical seed and data pairs under C
-   gives zero changes, and a split of KDDTest+ is not untouched evidence, so neither is
-   an informative false-rejection test.
+## Protocol
+
+The protocol for the chosen rule is [`e3_protocol.md`](e3_protocol.md), draft 8,
+awaiting review. Draft 1 was a "Frozen Protocol" section in this record. Codex's
+review of it found four problems:
+
+- its control candidates were labelled by the rule under test;
+- the hold-out can only give pilot evidence;
+- the U2R wording allowed hidden losses;
+- the build contract was incomplete.
+
+Draft 2 addressed those. Codex's review of draft 2 found five more:
+
+- the pilot's harm labels reused the gate's allowances and never checked the deployed
+  model against its two references;
+- its pass criteria could be met with no valid decisions;
+- a one-row allowance floor loosened the owner's min(measured, cap) rule;
+- skipped checks, outcome precedence, live-only U2R detections and the promotion
+  recheck were still unspecified;
+- the confirmatory run mixed the gate's dataset with the new dataset.
+
+Draft 3 addressed those. Codex's review of draft 3 found three more and asked for
+decision 6:
+
+- the confirmatory run could pass with no R2L or U2R evidence on the new data, and its
+  disjointness check was too narrow;
+- switching the rule on checked only two identities, and decisions were not bound to
+  the approved calibration;
+- the evaluation labels themselves were never validated.
+
+Draft 4 addressed those. Codex's review of draft 4 found three more:
+
+- the activation evidence was not joined to the reports: a passing confirmatory report
+  could have tested a different calibration from the one switched on, and the reports
+  had no defined contents or frozen protocol version;
+- the new-data exclusions assumed the live model's training inputs were known;
+- the input checks could compare identities before confirming the inputs existed, and
+  calibration limits were identified by hash but never validated.
+
+Draft 5 addressed those. Codex's review of draft 5 found two more:
+
+- switching the rule on replayed summaries (metric values, loss counts, file hashes)
+  rather than the labelled rows and per-row predictions they came from, so it could
+  not establish measured spreads or U2R coverage;
+- the fixture report and the confirmatory plan were not bound to the activation by
+  explicit identities.
+
+It also asked for the live model's training-input route to be settled before the
+hold-out is used. Draft 6 addressed all three. Codex's review of draft 6 found three
+more:
+
+- prediction files were not joined to one fitted artifact per fit, recorded before
+  scoring;
+- the new dataset's exclusions could not prove that every source row was accounted
+  for;
+- an exact refit alone could not establish the live model's historical inputs, and an
+  approved but unfinished replacement could not unblock confirmation.
+
+Draft 7 addressed those. Codex's review of draft 7 found one more: the owner-committed
+pre-score anchor was required but neither checked by the stage runner nor replayed at
+activation, and the fit manifest's training identities and cohorts were stored
+without being checked against the frozen design. Draft 8 addresses it. Earlier drafts
+remain in Git history and `HANDOFF.md`.
 
 ## Reproduce
 
@@ -246,3 +323,8 @@ python -m scripts.measure_retraining_variability --summarize --output results.js
 The first two tables are the last command's output on the committed results; the
 same-seed table abbreviates the listed rejection reasons to "reject". These runs used
 Linux, Python 3.10.12 and two CPU cores (about 30 s per fit).
+
+The hold-out file records its source digest, method, scikit-learn version, class
+counts and the SHA-256 of its index list. The committed indices are authoritative; the
+method is recorded so the selection can be audited, not regenerated on a different
+library version.
