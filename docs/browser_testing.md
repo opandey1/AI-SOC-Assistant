@@ -310,3 +310,47 @@ not combined `class_weight="balanced"` mass or causal influence. G2/G4 remain
 partial and G5 remains open. Figma nodes, operational reviews/models and published
 metrics were not changed. See [feedback governance](feedback_governance.md) for
 task descriptions, formulas, migration limits and exact executed commands.
+
+## Ticket Switch Follow-Up - 28 November 2026
+
+PR #13's Chromium run
+[46123726704](https://github.com/opandey1/AI-SOC-Assistant/actions/runs/46123726704)
+failed one of 23 cases, `test_real_candidate_promotion_and_rollback[chromium-320]`.
+All 10 reviews were saved, but **Retrain Random Forest** stayed disabled. PR #13
+changes no application or browser code.
+
+- **Cause, in the test.** After a queue row is clicked, nothing on the page is
+  marked stale for about 145-170 ms, while the previous ticket's form stays mounted,
+  so `settled()` passes at once. The new ticket's card can then appear up to about
+  60 ms before the form below it is replaced.
+- **Effect.** In that gap the DOS click can land on the previous ticket's pills.
+  They already show DOS, so the checked-state assertion passes. The new form then
+  saves its default, NORMAL. That ticket becomes a conflict, leaving four eligible
+  corrections.
+- **Fix.** `select_ticket(..., ticket=N)` waits for ticket N's card, then settles.
+  Once the new card is shown, the old form is marked stale until it is replaced, so
+  settling waits for the new form. The candidate workflow passes the ticket when it
+  switches tickets. It also checks the stored review rows after each round, so a
+  wrong label fails in the round that saved it. Application code is unchanged; no
+  retries, fixed sleeps or longer timeouts were added.
+
+Verification, local Python 3.10.12 with Chromium 158 (CI uses Python 3.12 and Chrome
+for Testing 153):
+
+- Clean export of `main` (`f0730a6`) with this change: 23 passed, no failures,
+  errors or skips; 20 console reports with no page errors or blocked requests. The
+  candidate workflow passed at all four widths twice more under two-core CPU load.
+- Unmodified app, switches recorded per animation frame: in 18 switches nothing was
+  stale for 144-168 ms after the click, and the old pills were marked stale whenever
+  the new card showed. In 7 of 36 switches the new card appeared 13-63 ms before the
+  old pills were replaced.
+- Two local app copies, not committed, delay the new form by 0.4 s. The old steps
+  failed on both (on the first at all four widths), saving a review for the previous
+  ticket or none. The new steps passed at all four widths on both.
+- On the second copy, the old steps with one scripted wait (for the new form, before
+  the Analyst fill) reproduced the CI end state in two of six runs: ticket #4 saved
+  NORMAL, 4 eligible and 1 conflicting, retraining disabled. With the fix, three of
+  three runs clicked ticket #4's pills.
+
+The CI trace was not inspected; the CI ordering was reproduced locally, not read from
+the failed run.

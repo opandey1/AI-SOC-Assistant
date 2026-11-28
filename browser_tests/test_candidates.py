@@ -27,8 +27,18 @@ def selection(console):
         return connection.execute("SELECT active, previous, generation FROM selection").fetchone()
 
 
+def stored_reviews(console):
+    return rows(
+        console,
+        "SELECT ticket_id, reviewed_by, disposition, corrected_class FROM reviews ORDER BY id",
+    )
+
+
 def test_real_candidate_promotion_and_rollback(console):
     page = console.page
+    first_reviews = [
+        (ticket, "synthetic-browser-analyst", "false_positive", "dos") for ticket in range(5, 0, -1)
+    ]
     for _ in range(5):
         analyze(page, alert=True)
     select(page, "Review queue")
@@ -39,7 +49,7 @@ def test_real_candidate_promotion_and_rollback(console):
         page.get_by_role("textbox", name="Analyst", exact=True).fill("synthetic-browser-analyst")
         page.locator('.st-key-review_detail [data-testid="stFormSubmitButton"] button').click()
         expect(page.get_by_text("No ticket selected", exact=True)).to_be_visible()
-    assert rows(console, "SELECT COUNT(*) FROM reviews") == [(5,)]
+    assert stored_reviews(console) == first_reviews
     select(page, "Model")
     expect(page.locator(".st-key-retrain_model button")).to_be_disabled()
     open_governance(page)
@@ -48,10 +58,7 @@ def test_real_candidate_promotion_and_rollback(console):
     select(page, "Review queue")
     select(page, "All", scope=page.locator(".st-key-review_state"))
     for index in range(5):
-        select_ticket(page, index=index)
-        expect(
-            page.locator(".st-key-review_detail").get_by_text(f"Ticket #{5-index}", exact=True)
-        ).to_be_visible()
+        select_ticket(page, index=index, ticket=5 - index)
         disposition(page, "False positive")
         select(page, "DOS", scope=page.locator(".st-key-review_corrected_class"))
         page.get_by_role("textbox", name="Analyst", exact=True).fill("second-browser-analyst")
@@ -59,7 +66,9 @@ def test_real_candidate_promotion_and_rollback(console):
         expect(
             page.locator(".st-key-review_detail").get_by_text(f"review-{6+index}", exact=True)
         ).to_be_visible()
-    assert rows(console, "SELECT COUNT(*) FROM reviews") == [(10,)]
+    assert stored_reviews(console) == first_reviews + [
+        (ticket, "second-browser-analyst", "false_positive", "dos") for ticket in range(5, 0, -1)
+    ]
     select(page, "Model")
     expect(page.locator(".st-key-retrain_model button")).to_be_enabled()
     select(page, "Review queue")
