@@ -17,7 +17,12 @@ from src.model_store import ModelArtifact, save_model_artifact
 from src.retrain import RetrainingReport, file_digest
 from src.train import IsolationScoreCalibration
 from src.feedback import FeedbackStore
-from src.feedback_policy import FeedbackPolicy, build_cohort, weight_plan
+from src.feedback_policy import (
+    FEEDBACK_GOVERNANCE_VERSION,
+    FeedbackPolicy,
+    build_cohort,
+    weight_plan,
+)
 
 
 @pytest.fixture
@@ -76,11 +81,15 @@ def register(registry, report, *, parent=0, reference=None, reference_metrics=No
                 )
     cohort = build_cohort(store.review_snapshot())
     report["feedback_governance"] = dict(
-        version=1,
+        version=FEEDBACK_GOVERNANCE_VERSION,
         identity="unauthenticated_local_labels",
         policy=asdict(FeedbackPolicy()),
         cohort=cohort.audit(),
-        weights=weight_plan(cohort, base_rows=100, requested_weight=report["feedback_weight"]),
+        weights=weight_plan(
+            cohort,
+            family_rows=dict.fromkeys(("normal", "dos", "probe", "r2l", "u2r"), 100),
+            requested_weight=report["feedback_weight"],
+        ),
     )
     candidate_id = uuid4().hex
     directory = registry.root / candidate_id
@@ -437,13 +446,83 @@ def test_old_candidate_without_current_policy_is_not_grandfathered(registry, rep
     assert registry.state()["generation"] == 0
 
 
-def test_invalid_recorded_budget_cannot_promote(registry, report):
+def _weights(report):
+    return report["feedback_governance"]["weights"]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda report: _weights(report).update(sample_weights=[60] * 5),
+        lambda report: _weights(report)["family_rows"].update(dos=100_000),
+        lambda report: _weights(report).pop("family_rows"),
+        lambda report: _weights(report)["family_rows"].update(dos="100"),
+        lambda report: _weights(report).clear(),
+        lambda report: report["feedback_governance"].pop("weights"),
+        lambda report: report["feedback_governance"].update(weights=None),
+        lambda report: report["feedback_governance"].update(weights=[]),
+        lambda report: report["feedback_governance"].pop("cohort"),
+        lambda report: report["feedback_governance"].update(cohort=None),
+        lambda report: report.pop("feedback_weight"),
+        # JSON integers are unbounded; beyond the float range they are invalid input.
+        lambda report: report.update(feedback_weight=10**400),
+        lambda report: _weights(report)["family_rows"].update(dos=10**400),
+    ],
+    ids=[
+        "sample_weights",
+        "family_rows",
+        "no_family_rows",
+        "bad_family_rows",
+        "empty_plan",
+        "missing_plan",
+        "null_plan",
+        "list_plan",
+        "missing_cohort",
+        "null_cohort",
+        "missing_requested_weight",
+        "huge_requested_weight",
+        "huge_family_rows",
+    ],
+)
+def test_invalid_recorded_budget_cannot_promote(registry, report, tamper):
     candidate = register(registry, report)
-    report["feedback_governance"]["weights"]["sample_weights"] = [60] * 5
+    tamper(report)
     rewrite_fixture_report(registry, candidate, report)
+    state, history = registry.state(), registry.history()
     with pytest.raises(ValueError, match="budget or cohort"):
         registry.promote(candidate, expected_generation=0, actor="alice")
-    assert registry.state()["generation"] == 0
+    assert registry.state() == state and registry.history() == history
+
+
+@pytest.mark.parametrize("metric", ["updated_accuracy", "baseline_macro_f1"])
+def test_metric_beyond_float_range_is_invalid_not_an_overflow(registry, report, metric):
+    candidate = register(registry, report)
+    report[metric] = 10**400
+    assert f"invalid_{metric.split('_', 1)[1]}" in acceptance_reasons(report)
+    rewrite_fixture_report(registry, candidate, report)
+    state, history = registry.state(), registry.history()
+    with pytest.raises(ValueError, match="non-regression"):
+        registry.promote(candidate, expected_generation=0, actor="alice")
+    assert registry.state() == state and registry.history() == history
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda report: report["feedback_governance"].update(version=1),
+        lambda report: report.update(feedback_governance=None),
+        lambda report: report.update(feedback_governance=[]),
+    ],
+    ids=["version_one", "null_record", "list_record"],
+)
+def test_old_or_malformed_governance_record_is_not_grandfathered(registry, report, tamper):
+    candidate = register(registry, report)
+    tamper(report)
+    rewrite_fixture_report(registry, candidate, report)
+    state, history = registry.state(), registry.history()
+    with pytest.raises(ValueError, match="predates"):
+        registry.promote(candidate, expected_generation=0, actor="alice")
+    assert registry.state() == state and registry.history() == history
 
 
 def test_feedback_lock_is_held_until_registry_transaction_commits(registry, report, monkeypatch):

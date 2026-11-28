@@ -1,15 +1,64 @@
 # ADR-002: Feedback Weight Caps (G2)
 
-**Status:** Proposed. These are options for the owner's decision; nothing is
-implemented, and today's caps stay in force. The chosen option lands as its own PR
-before the E3 recipe is frozen for the pilot
-([protocol §9.3](e3_protocol.md)).
+**Status:** Accepted by the owner on 28 November 2026: O2 at 5%, with the proposed
+rules, and governed retraining always oversamples (see [Decision](#decision)). The
+options below are the record the decision was made from; "today's caps" in them means
+the caps in force before this change.
 **Date:** 28 November 2026
 **Deciders:** repository owner; reviewed under `AGENT-PROTOCOL.md`
 
+## Decision
+
+The owner chose, on 28 November 2026:
+
+- **O2, the class-weighted family share, at f = 5%.** The corrections aimed at one
+  family may carry at most 5% of that family's final class-weighted training mass, so
+  their explicit weight is at most 5/95 of the family's baseline rows.
+- **The proposed rules:** each target family has its own scale factor; each reviewer
+  label is credited an equal share of every correction it endorses and may hold at
+  most half of each family's budget; there is no separate global cap.
+- **Governed retraining always oversamples.** `--no-smote` is removed from
+  `python -m src.retrain`, `ModelRegistry.create_candidate` no longer takes
+  `use_smote`, and `retrain_from_feedback` refuses `use_smote=False` when it is given a
+  feedback policy. The family budgets are therefore always computed from oversampled
+  rows, where every family has the majority family's count.
+
+Implementation (`src/feedback_policy.py`, `src/retrain.py`, `src/model_registry.py`):
+
+- `FeedbackPolicy` holds `family_mass_fraction = 0.05` and
+  `reviewer_budget_fraction = 0.5`. `weight_plan` takes each family's oversampled
+  training rows and records, per target family, its corrections, budget, reviewer
+  budget, scale, effective and total weight and each label's credited weight.
+- The governance record in training reports is version 2. Promotion recomputes the
+  plan from the recorded family rows and refuses any mismatch. Version 1 candidates,
+  trained under the earlier caps, must be retrained before promotion.
+- At production size every family is first scaled at 142 corrections at weight 25
+  (60 at weight 60), as in the options table.
+- With at least two endorsers per correction and equal crediting, a label's credited
+  weight is at most half its family's total, so the reviewer budget cannot bind before
+  the family budget does. It is kept as the owner chose, as defence in depth; it binds
+  only if set below one half.
+- The cap bounds the corrections' weight, not their effect. A cohort placed where the
+  training set has no rows can still form its own leaves at any weight; a regression
+  test relies on exactly that to produce a rejected candidate.
+
+**E3.** This changes two hashed recipe files (`src/feedback_policy.py`,
+`src/retrain.py`), so it lands before the pilot. The approved protocol says the
+weights follow "the current feedback policy (`weight_plan`), unchanged" (§3) and that
+"the weight plan scales the weights of the two largest sizes" (§8.2).
+
+- Under O2 at 5% all four pilot flip sizes are scaled. Each carries the same total
+  weight, 2,835: 5/95 of the 53,874 oversampled normal rows in D. Before G2 they
+  carried 3,000, 15,000, 26,937 and 26,937.
+- On development data a 15,000 flip moved DoS recall by 0.07 pt, so harmful_B
+  candidates now look less likely. This raises the criterion (b) coverage risk in
+  [Interaction with E3](#interaction-with-e3); it is a projection, not a pilot result.
+- The pilot stays blocked until a reviewed protocol amendment reconciles §3, §8.2 and
+  the coverage of (b). H is not used before then.
+
 ## Context
 
-**Today's caps** (`weight_plan` in `src/feedback_policy.py`):
+**Today's caps** (`weight_plan` in `src/feedback_policy.py` before G2):
 
 - Each consensus correction gets the requested weight (1-60, default 25).
 - The total explicit weight must stay within 10% of B, the training rows after the
@@ -32,7 +81,7 @@ retraining, gives every family the majority family's row count.
 - At production size (full KDDTrain+), scaling starts at 1,347 corrections at
   weight 25 (562 at weight 60).
 
-**Without oversampling** (`--no-smote`, which governed retraining also accepts), class
+**Without oversampling** (`--no-smote`, which governed retraining accepted until G2), class
 weights run from 0.37 for normal to 484 for U2R.
 
 - Five U2R corrections at weight 25 then carry 70.6% of the U2R family's final
@@ -208,11 +257,11 @@ default mode.
 
 ## Decisions Needed
 
-1. Which option, and its fraction.
-2. For O2 or O3, the three implementation rules above.
-3. Whether governed retraining keeps `--no-smote`.
-4. Whether to change the pilot for criterion (b). That would be a reviewed protocol
-   change before H is used.
+1. Which option, and its fraction: O2 at 5% (decided 28 November).
+2. For O2 or O3, the three implementation rules above: as proposed (decided).
+3. Whether governed retraining keeps `--no-smote`: no (decided).
+4. Whether to change the pilot for criterion (b): open. It is now required, as part of
+   the protocol amendment above, before H is used.
 
 ## Reproduce
 
@@ -223,6 +272,11 @@ present.
   recorded in the manifest.
 - The influence part fits 29 models and resumes from the record; each fit takes about
   20 seconds on two cores.
+- The script keeps the earlier caps (10% total, 5% per label) as its own constants, so
+  it reproduces this record after the change: byte for byte on the recording
+  environment (Linux, Python 3.10). The reviewer's Windows run with Python 3.12 gave
+  identical thresholds, with last-digit float differences of at most 2.27e-13. Its O2
+  calculation is tested against the implemented `weight_plan`.
 
 ```bash
 python -m scripts.measure_weight_caps --part analyse --output results.json

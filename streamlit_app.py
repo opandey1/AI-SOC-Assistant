@@ -23,7 +23,13 @@ from src.ingest import MODEL_INPUT_COLUMNS, NSL_KDD_COLUMNS, load_nsl_kdd, resol
 from src.model_store import MODEL_ARTIFACT_FORMAT, load_model_artifact, runtime_from_artifact
 from src.model_registry import ModelRegistry
 from src.retrain import MINIMUM_FEEDBACK_EXAMPLES
-from src.feedback_policy import FeedbackPolicy, build_cohort
+from src.feedback_policy import (
+    FEEDBACK_GOVERNANCE_VERSION,
+    FeedbackPolicy,
+    build_cohort,
+    check_budget_inputs,
+    is_finite_number,
+)
 from src.runtime import (
     ConnectionAnalysis,
     analyze_raw_connection,
@@ -56,6 +62,33 @@ def show_governance_failure(error: Exception, event: str, fallback: str) -> None
     else:
         LOGGER.warning("%s reason=unexpected type=%s", event, type(error).__name__)
         st.error(fallback)
+
+
+def weight_plan_rows(weights, requested_weight) -> list[tuple[str, float, float, float]] | None:
+    """(class, effective weight, total weight, budget) for each class of a version 2
+    weight plan, or None unless the plan has the inputs promotion needs.
+
+    This checks shape only: the registry recomputes the plan under the review lock.
+    """
+    families = weights.get("families") if isinstance(weights, dict) else None
+    if not isinstance(families, dict) or not families:
+        return None
+    try:
+        check_budget_inputs(weights.get("family_rows"), requested_weight)
+    except ValueError:
+        return None
+    rows = []
+    for family, plan in families.items():
+        values = tuple(
+            plan.get(key) if isinstance(plan, dict) else None
+            for key in ("effective_weight", "total_weight", "budget")
+        )
+        if family not in weights["family_rows"] or not weights["family_rows"][family]:
+            return None
+        if not all(is_finite_number(value) for value in values):
+            return None
+        rows.append((family, *values))
+    return rows
 
 
 # Published evaluation results (docs/evaluation/*). Reported hardest-first.
@@ -911,12 +944,16 @@ else:
                         f"{len(feedback_examples)} of {MINIMUM_FEEDBACK_EXAMPLES} required eligible corrections.",
                         icon=":material/groups:",
                     )
+                budget_policy = FeedbackPolicy()
                 st.html(
                     ui.callout(
                         "",
                         "Five corrections and two agreeing labels per ticket are required; "
-                        "conflicts are held out. Total feedback weight is capped at 10% of base "
-                        "training weight, with 5% credited to any reviewer label. These are "
+                        "conflicts are held out. Corrections for each class may carry at most "
+                        f"{budget_policy.family_mass_fraction:.0%} of that class's training "
+                        "weight after class balancing, with at most "
+                        f"{budget_policy.reviewer_budget_fraction:.0%} of that budget credited "
+                        "to any reviewer label. These are "
                         "local prototype safeguards, not authenticated consensus. "
                         "Acceptance compares RF accuracy, macro F1 and "
                         "all five class recalls on this evaluation file, not production quality.",
@@ -997,19 +1034,32 @@ else:
             except (ValueError, OSError, KeyError):
                 st.error("Candidate bundle integrity check failed. No model selection was changed.")
                 st.stop()
-            candidate_governance = st.session_state.last_retrain_report.get(
-                "feedback_governance", {}
+            candidate_governance = st.session_state.last_retrain_report.get("feedback_governance")
+            if not isinstance(candidate_governance, dict):
+                candidate_governance = {}
+            current_policy = candidate_governance.get(
+                "version"
+            ) == FEEDBACK_GOVERNANCE_VERSION and candidate_governance.get("policy") == asdict(
+                FeedbackPolicy()
             )
-            current_policy = candidate_governance.get("version") == 1 and candidate_governance.get(
-                "policy"
-            ) == asdict(FeedbackPolicy())
+            recorded_cohort = candidate_governance.get("cohort")
+            plan_rows = weight_plan_rows(
+                candidate_governance.get("weights"),
+                st.session_state.last_retrain_report.get("feedback_weight"),
+            )
+            valid_record = plan_rows is not None and isinstance(recorded_cohort, dict)
             current_reviews = (
                 current_policy
-                and candidate_governance["cohort"]["snapshot_sha256"]
-                == feedback_cohort.snapshot_sha256
+                and valid_record
+                and recorded_cohort.get("snapshot_sha256") == feedback_cohort.snapshot_sha256
             )
             if not current_policy:
                 st.warning("Candidate predates the current feedback policy. Train a new candidate.")
+            elif not valid_record:
+                st.warning(
+                    "Candidate weight plan or cohort record is missing or invalid. "
+                    "Train a new candidate."
+                )
             elif not current_reviews:
                 st.warning("Review decisions changed since training. Train a new candidate.")
             if candidate["accepted"]:
@@ -1067,12 +1117,29 @@ else:
     if st.session_state.last_retrain_report:
         report = st.session_state.last_retrain_report
         governance = report.get("feedback_governance")
-        if governance:
-            weights = governance["weights"]
+        weights = governance.get("weights") if isinstance(governance, dict) else None
+        requested = report.get("feedback_weight")
+        plan_rows = weight_plan_rows(weights, requested)
+        # Reports from before the per-class budgets (governance version 1) have one total.
+        legacy = (
+            tuple(weights.get(key) for key in ("effective_weight", "total_weight", "total_cap"))
+            if isinstance(weights, dict) and governance.get("version") == 1
+            else ()
+        )
+        if plan_rows:
             st.caption(
-                f"Requested feedback weight {report['feedback_weight']:.2f}; "
-                f"effective per-row weight {weights['effective_weight']:.4f}; "
-                f"total {weights['total_weight']:.2f} / {weights['total_cap']:.2f} budget."
+                f"Requested feedback weight {requested:.2f}. Effective per-row weight by class: "
+                + "; ".join(
+                    f"{family.upper()} {effective:.4f} ({total:.2f} of a {budget:.2f} budget)"
+                    for family, effective, total, budget in plan_rows
+                )
+                + "."
+            )
+        elif legacy and all(is_finite_number(value) for value in (requested, *legacy)):
+            effective, total, cap = legacy
+            st.caption(
+                f"Requested feedback weight {requested:.2f}; effective per-row weight "
+                f"{effective:.4f}; total {total:.2f} / {cap:.2f} budget."
             )
         delta = report["updated_macro_f1"] - report["baseline_macro_f1"]
         st.html(ui.section_label("LATEST CANDIDATE"))

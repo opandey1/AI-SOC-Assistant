@@ -32,43 +32,47 @@ is not the selection/promotion API and must never target an active bundle.
 aliases, collusion and forged names remain possible. This is a trusted-local prototype
 workflow, not authenticated consensus or poisoning prevention. G5 remains open.
 
-## 2. Actual RF Sample-Weight Budgets (G2)
+## 2. Per-Class Sample-Weight Budgets (G2)
+
+Changed on 28 November 2026 by [ADR-002](g2_weight_caps.md) (option O2). Until then
+the caps were 10% of all base training rows in total and 5% per reviewer label.
 
 `weight_plan` treats the UI's 1-60 slider as a **requested** per-correction weight,
-not a promise that every correction receives it. Let `B` be the number of original
-training rows after the existing optional random oversampling, each with weight 1.
-Total explicit correction sample weight is capped at `0.10 * B`. Each reviewer's credited share
-is capped at `0.05 * B`. These fractions are conservative prototype defaults, not
-empirically optimized thresholds.
-
-For each eligible correction, split requested weight equally between all endorsing
-labels for influence accounting. Compute:
+not a promise that every correction receives it. Governed retraining always uses
+random oversampling, so every class has the majority class's count of training rows,
+each with weight 1. For each class `t` that corrections target, with `n_t` those rows:
 
 ```text
-scale = min(1, total_cap / requested_total,
-               each_reviewer_cap / each_reviewer_requested_share)
-effective_per_row_weight = requested_per_row_weight * scale
+budget_t = f / (1 - f) * n_t        (f = 0.05: at most 5/95 of n_t)
+scale_t = min(1, budget_t / requested_t,
+                 each_reviewer_budget_t / each_reviewer_requested_share_t)
+effective_per_row_weight_t = requested_per_row_weight * scale_t
 ```
 
-All correction rows are scaled uniformly. This preserves equal correction weights
-and deterministic behavior, but an overrepresented reviewer can throttle the whole
-cohort and leave budget unused. The original balanced training rows remain weight 1.
-The actual capped vector is passed into the production RF fitter. ISO fitting and
-calibration reuse are unchanged; feedback still updates only the RF.
+`requested_t` is the requested weight times the number of corrections for `t`, and a
+reviewer label's budget is half of `budget_t`. RF `class_weight="balanced"` gives a
+class's rows and its corrections the same class weight, so this keeps the corrections
+at most 5% of the class's final class-weighted training mass. Each class is scaled on
+its own, and there is no separate global cap.
 
-For the 40-row unbalanced test fixture, five corrections requested at 25 receive
-0.8 each: total 4, credited 2 each to two endorsers. With the 60-row oversampled
-fixture they receive 1.2 each: total 6, credited 3 each. Large training populations
-can retain the requested 25 if neither cap binds. Effective weights can be below 1.
+For influence accounting, a correction's requested weight is split equally between
+its endorsing labels. With at least two labels per correction, no label holds more
+than half of a class's total, so at its default of one half the reviewer budget cannot
+bind before the class budget does; it is defence in depth. The original training rows
+keep weight 1, and the capped vector is passed into the production RF fitter. ISO
+fitting and calibration reuse are unchanged; feedback still updates only the RF.
+
+For the oversampled test fixture (12 rows per class), five DoS corrections requested
+at 25 receive about 0.126 each: about 0.63 in total, 5/95 of 12. On the full NSL-KDD
+training set (67,343 rows per class after oversampling), a class's corrections are
+first scaled at 142 corrections at weight 25 (60 at weight 60). Effective weights can
+be below 1.
+
 Weight totals are numerical constraints (subject to floating-point roundoff), not
-bounds on causal model influence, tree structure, label correctness or drift.
-The existing RF `class_weight="balanced"` remains unchanged and is computed from
-the augmented class population. scikit-learn multiplies those class weights by the
-explicit sample weights. Therefore these caps govern the **sample_weight input**,
-not the combined class-weighted mass; rare/novel-class corrections can still receive
-larger relative influence after class balancing. Combined-weight/prior governance
-and calibrated thresholds remain follow-up work, so G2 is partial rather than a
-production influence-control closure.
+bounds on causal model influence, tree structure, label correctness or drift. A small
+cohort placed where the training set has no rows can still form its own leaves at any
+weight; a regression test relies on that to produce a rejected candidate. Calibrated
+thresholds remain follow-up work.
 
 ## 3. Conflict and Reviewer Diagnostics (G4)
 
@@ -82,8 +86,9 @@ queue/filter view, not the training eligibility rule.
 The cohort audit download omits raw telemetry, notes, ticket text and IP columns.
 It includes reviewer labels and ticket/review IDs, which remain potentially sensitive.
 Training reports/model metadata include the policy, cohort snapshot SHA-256, all
-endorsing review IDs, requested/effective weights, total/reviewer budgets and actual
-attributed weights. The report download records full weight attribution.
+endorsing review IDs, requested and effective weights, each class's training rows,
+budget and reviewer budget, and the weight credited to each label. The report download
+records full weight attribution.
 
 Peer agreement is **not accuracy**: two people can agree on the wrong label. No
 ground-truth reviewer reliability score, automatic analyst ranking/blacklisting,

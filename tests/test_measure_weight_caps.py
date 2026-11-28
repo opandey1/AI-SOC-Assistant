@@ -18,13 +18,13 @@ from src.feedback_policy import FeedbackCohort, weight_plan
 PRODUCTION = {"normal": 67343, "dos": 45927, "probe": 11656, "r2l": 995, "u2r": 52}
 
 
-def cohort(size, reviewers=("alice", "bob")):
+def cohort(size, target="normal", reviewers=("alice", "bob")):
     examples = tuple(
         FeedbackExample(
             ticket_id=i,
             event_id=f"event-{i}",
             raw_record={},
-            corrected_class="normal",
+            corrected_class=target,
             review_id=i,
             review_ids=(2 * i, 2 * i + 1),
             reviewers=reviewers,
@@ -34,11 +34,15 @@ def cohort(size, reviewers=("alice", "bob")):
     return FeedbackCohort(examples, {}, (), (), "snapshot")
 
 
+@pytest.mark.parametrize("target", caps.FAMILIES)
 @pytest.mark.parametrize("size, weight", [(5, 25.0), (2000, 25.0), (600, 60.0), (1, 60.0)])
-def test_status_quo_scale_matches_weight_plan(size, weight):
-    base_rows = sum(caps.oversampled_counts(PRODUCTION).values())
-    plan = weight_plan(cohort(size), base_rows=base_rows, requested_weight=weight)
-    assert caps.status_quo_scale(base_rows, size, weight) == pytest.approx(plan["scale"])
+def test_family_share_scale_matches_the_implemented_weight_plan(target, size, weight):
+    """G2 adopted O2 at 5%: governed retraining applies the scale calculated here."""
+    rows = caps.oversampled_counts(PRODUCTION)
+    plan = weight_plan(cohort(size, target), family_rows=rows, requested_weight=weight)
+    assert plan["families"][target]["scale"] == pytest.approx(
+        caps.family_share_scale(rows[target], size, weight, 0.05)
+    )
 
 
 def test_status_quo_reproduces_the_documented_production_thresholds():
@@ -76,7 +80,7 @@ def test_class_weighted_total_caps_the_corrections_share_of_all_mass(target):
     scale = caps.class_weighted_total_scale(PRODUCTION, target, 5000, 60.0)
     mass = caps.cohort_mass(PRODUCTION, target, 5000, 60.0 * scale)
     assert scale < 1
-    assert mass["corrections"] / mass["total"] == pytest.approx(caps.POLICY.total_weight_fraction)
+    assert mass["corrections"] / mass["total"] == pytest.approx(caps.STATUS_QUO_TOTAL_FRACTION)
 
 
 def test_class_balancing_amplifies_rare_targets_only_without_oversampling():

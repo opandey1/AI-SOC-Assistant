@@ -6,9 +6,12 @@ check (see [Decisions](#decisions-owner-27-november-2026)). The protocol,
 text will not be edited, so this record holds its status from now on (see
 [Protocol](#protocol)). The protocol's operational freeze of the checker, runner,
 fixture and recipe identities (§9.3) starts only at the pilot; until then
-implementation and G2 can still change them. An offline checker is in review.
-Switching the rule on still requires the remaining fixtures, a pilot on the hold-out
-and a confirmatory run on new data (H1). Today's zero-tolerance gate stays in force.
+implementation and G2 can still change them. The offline checker merged in PR #15.
+G2's per-class weight budget ([ADR-002](g2_weight_caps.md)) changed the weight plan
+that protocol §3 and §8.2 describe, so the pilot waits for a reviewed protocol
+amendment (see [Implementation Progress](#implementation-progress)). Switching the
+rule on still requires the remaining fixtures, a pilot on the hold-out and a
+confirmatory run on new data (H1). Today's zero-tolerance gate stays in force.
 **Date:** 26 November 2026 (measurements); 27 November 2026 (decisions and protocol)
 **Deciders:** repository owner; reviewed under `AGENT-PROTOCOL.md`
 
@@ -325,14 +328,26 @@ The approving review added two readings for the build:
 ### Implementation Progress
 
 - **Offline checker** (protocol §5): `src/acceptance_v2.py`, with synthetic-prediction
-  fixtures in `tests/test_acceptance_v2.py`. In review.
+  fixtures in `tests/test_acceptance_v2.py`. Merged in PR #15.
   - The module is pure: it fits nothing, loads no model and touches neither training,
     promotion nor the registry.
   - Its file SHA-256 is the protocol's `checker_id`, which is not frozen until the
     pilot.
   - Evaluation rows must have exactly 41 scalar, finite inputs and a family label
     before anything is hashed.
+- **G2 weight plan** ([ADR-002](g2_weight_caps.md), 28 November): each class's
+  corrections now carry at most 5% of its class-weighted training mass, and governed
+  retraining always oversamples. This changed two recipe files (`src/feedback_policy.py`,
+  `src/retrain.py`), which is allowed before the pilot.
+  - Protocol §3 says the weights follow the feedback policy "unchanged", and §8.2 says
+    the plan scales the two largest flip sizes. Under the new budget all four sizes
+    are scaled to the same total weight (2,835 on the pilot's training split), which
+    also makes criterion (b)'s coverage less likely.
+  - This record does not change the approved design. A reviewed protocol amendment
+    must reconcile §3, §8.2 and the coverage of (b) before the pilot, and H is not
+    used before then.
 - **Still to build before the pilot:**
+  - the protocol amendment for G2 (above);
   - the §8.2 labelling-rule fixtures;
   - the stage runner with its anchor check;
   - the §9 evidence records and activation replay;

@@ -1,6 +1,7 @@
 """Local consensus, bias diagnostics and actual influence budgets, not identity assurance."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
+import json
 import sqlite3
 
 import pytest
@@ -8,6 +9,8 @@ import pytest
 from src.feedback_policy import (
     FeedbackPolicy,
     build_cohort,
+    check_budget_inputs,
+    is_finite_number,
     locked_cohort,
     reviewer_key,
     weight_plan,
@@ -124,28 +127,92 @@ def test_changed_record_or_new_same_vote_changes_snapshot():
     assert build_cohort(rows).snapshot_sha256 != changed
 
 
-@pytest.mark.parametrize("balanced_rows", [40, 60, 1000])
-def test_total_and_each_reviewer_budget_are_enforced(balanced_rows):
-    rows = [row for i in range(10) for row in votes(i, first_id=2 * i + 1)]
+FAMILIES = ("normal", "dos", "probe", "r2l", "u2r")
+
+
+def family_rows(count=100, **overrides):
+    return dict(dict.fromkeys(FAMILIES, count), **overrides)
+
+
+def cohort_of(*targets, reviewers=("alice", "bob")):
+    """One consensus correction per target, in ticket order."""
+    return build_cohort(
+        [
+            row
+            for ticket, target in enumerate(targets, start=1)
+            for row in votes(ticket, reviewers, target, first_id=10 * ticket)
+        ]
+    )
+
+
+@pytest.mark.parametrize("rows", [40, 60, 1000])
+def test_family_budget_caps_the_corrections_share_of_their_family(rows):
+    plan = weight_plan(
+        cohort_of(*["normal"] * 10), family_rows=family_rows(rows), requested_weight=25
+    )
+    normal = plan["families"]["normal"]
+    assert set(plan["families"]) == {"normal"}
+    assert normal["budget"] == pytest.approx(0.05 / 0.95 * rows)
+    assert normal["total_weight"] <= normal["budget"] * (1 + 1e-12)
+    # Within a family the class weight cancels: the share of its final class-weighted mass.
+    assert normal["total_weight"] / (rows + normal["total_weight"]) <= 0.05 + 1e-12
+    assert sum(normal["reviewer_weights"].values()) == pytest.approx(normal["total_weight"])
+    assert all(
+        value <= normal["reviewer_budget"] * (1 + 1e-12)
+        for value in normal["reviewer_weights"].values()
+    )
+    assert plan["sample_weights"] == [normal["effective_weight"]] * 10
+    assert normal["effective_weight"] <= 25 and plan["total_weight"] == normal["total_weight"]
+
+
+def test_each_target_family_is_scaled_on_its_own():
+    cohort = cohort_of("normal", "dos", "normal", "u2r")
+    plan = weight_plan(cohort, family_rows=family_rows(19, dos=19000, probe=0), requested_weight=25)
+    normal, dos = plan["families"]["normal"], plan["families"]["dos"]
+    assert normal["budget"] == pytest.approx(1.0) and normal["scale"] == pytest.approx(1 / 50)
+    assert dos["budget"] == pytest.approx(1000.0) and dos["scale"] == 1
+    assert plan["families"]["u2r"]["scale"] == pytest.approx(1 / 25)
+    assert plan["sample_weights"] == pytest.approx([0.5, 25, 0.5, 1.0])
+    assert [example.corrected_class for example in cohort.examples] == [
+        "normal",
+        "dos",
+        "normal",
+        "u2r",
+    ]
+    assert plan["total_weight"] == pytest.approx(27.0)
+
+
+def test_reviewer_budget_binds_only_when_set_below_half_the_family_budget():
+    # Alice endorses every correction; Bob and Carol share the other endorsements.
+    rows = [
+        row
+        for ticket in range(1, 9)
+        for row in votes(ticket, ("alice", "bob" if ticket % 2 else "carol"), first_id=10 * ticket)
+    ]
     cohort = build_cohort(rows)
-    plan = weight_plan(cohort, base_rows=balanced_rows, requested_weight=25)
-    assert sum(plan["sample_weights"]) <= plan["total_cap"] + 1e-12
-    assert sum(plan["reviewer_weights"].values()) == pytest.approx(plan["total_weight"])
-    assert all(value <= plan["reviewer_cap"] + 1e-12 for value in plan["reviewer_weights"].values())
-    assert plan["effective_weight"] <= 25
-
-
-def test_reviewer_cap_can_bind_before_total_cap():
-    cohort = build_cohort(votes())
-    policy = FeedbackPolicy(reviewer_weight_fraction=0.01)
-    plan = weight_plan(cohort, base_rows=100, requested_weight=25, policy=policy)
-    assert plan["total_weight"] == 2 and plan["total_cap"] == 10
-    assert plan["reviewer_weights"] == dict(alice=1, bob=1)
+    family = weight_plan(cohort, family_rows=family_rows(1900), requested_weight=25)
+    assert family["families"]["normal"]["scale"] == pytest.approx(100 / 200)
+    assert family["families"]["normal"]["reviewer_weights"]["alice"] == pytest.approx(50.0)
+    strict = weight_plan(
+        cohort,
+        family_rows=family_rows(1900),
+        requested_weight=25,
+        policy=FeedbackPolicy(reviewer_budget_fraction=0.25),
+    )
+    assert strict["families"]["normal"]["scale"] == pytest.approx(25 / 100)
+    assert strict["families"]["normal"]["reviewer_weights"]["alice"] == pytest.approx(25.0)
 
 
 def test_large_training_set_retains_requested_weight():
-    plan = weight_plan(build_cohort(votes()), base_rows=10000, requested_weight=25)
-    assert plan["scale"] == 1 and plan["sample_weights"] == [25]
+    plan = weight_plan(cohort_of("normal"), family_rows=family_rows(10000), requested_weight=25)
+    assert plan["families"]["normal"]["scale"] == 1 and plan["sample_weights"] == [25]
+
+
+def test_recorded_plan_round_trips_and_matches_recomputation():
+    cohort = cohort_of("normal", "dos", "dos")
+    plan = weight_plan(cohort, family_rows=family_rows(77), requested_weight=12.5)
+    assert json.loads(json.dumps(plan)) == plan
+    assert plan == weight_plan(cohort, family_rows=family_rows(77), requested_weight=12.5)
 
 
 @pytest.mark.parametrize(
@@ -154,12 +221,16 @@ def test_large_training_set_retains_requested_weight():
         ("minimum_reviewers", 1),
         ("minimum_reviewers", True),
         ("minimum_reviewers", 2.5),
-        ("total_weight_fraction", 0),
-        ("total_weight_fraction", float("nan")),
-        ("total_weight_fraction", 1.1),
-        ("total_weight_fraction", True),
-        ("reviewer_weight_fraction", float("inf")),
-        ("reviewer_weight_fraction", 0.2),
+        ("family_mass_fraction", 0),
+        ("family_mass_fraction", 1),
+        ("family_mass_fraction", float("nan")),
+        ("family_mass_fraction", 1.1),
+        ("family_mass_fraction", True),
+        ("reviewer_budget_fraction", 0),
+        ("reviewer_budget_fraction", float("inf")),
+        ("reviewer_budget_fraction", 1.5),
+        ("reviewer_budget_fraction", True),
+        ("reviewer_budget_fraction", 10**400),
     ],
 )
 def test_invalid_policy_is_rejected(field, value):
@@ -168,17 +239,69 @@ def test_invalid_policy_is_rejected(field, value):
 
 
 @pytest.mark.parametrize(
-    "base_rows,weight",
-    [(0, 25), (True, 25), (1.5, 25), (100, 0), (100, 61), (100, True), (100, float("nan"))],
+    "value,expected",
+    [
+        (0, True),
+        (25, True),
+        (0.5, True),
+        (10**300, True),
+        (10**400, False),
+        (-(10**400), False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (True, False),
+        ("25", False),
+        (None, False),
+    ],
 )
-def test_invalid_budget_inputs_are_rejected(base_rows, weight):
+def test_finite_numbers_include_large_but_not_unconvertible_integers(value, expected):
+    assert is_finite_number(value) is expected
+
+
+@pytest.mark.parametrize(
+    "rows,weight",
+    [
+        (None, 25),
+        ([100] * 5, 25),
+        ({family: 100 for family in FAMILIES[:4]}, 25),
+        (family_rows(unknown=100), 25),
+        (family_rows(dos=-1), 25),
+        (family_rows(dos=True), 25),
+        (family_rows(dos=1.5), 25),
+        (family_rows(dos=10**400), 25),
+        (family_rows(), 0),
+        (family_rows(), 61),
+        (family_rows(), True),
+        (family_rows(), float("nan")),
+        (family_rows(), 10**400),
+        (family_rows(), "25"),
+    ],
+)
+def test_invalid_budget_inputs_are_rejected(rows, weight):
     with pytest.raises(ValueError):
-        weight_plan(build_cohort(votes()), base_rows=base_rows, requested_weight=weight)
+        check_budget_inputs(rows, weight)
+    with pytest.raises(ValueError):
+        weight_plan(cohort_of("normal"), family_rows=rows, requested_weight=weight)
+
+
+def test_corrections_need_baseline_rows_for_their_own_family_only():
+    plan = weight_plan(cohort_of("dos"), family_rows=family_rows(u2r=0), requested_weight=25)
+    assert set(plan["families"]) == {"dos"}
+    with pytest.raises(ValueError, match="no baseline training rows"):
+        weight_plan(cohort_of("u2r"), family_rows=family_rows(u2r=0), requested_weight=25)
+
+
+@pytest.mark.parametrize("change", [dict(corrected_class="unknown"), dict(reviewers=("alice",))])
+def test_hand_built_cohort_with_invalid_corrections_is_rejected(change):
+    cohort = cohort_of("normal")
+    broken = replace(cohort, examples=(replace(cohort.examples[0], **change),))
+    with pytest.raises(ValueError, match="valid family"):
+        weight_plan(broken, family_rows=family_rows(), requested_weight=25)
 
 
 def test_empty_cohort_cannot_allocate_weights():
     with pytest.raises(ValueError, match="No consensus"):
-        weight_plan(build_cohort([]), base_rows=100, requested_weight=25)
+        weight_plan(build_cohort([]), family_rows=family_rows(), requested_weight=25)
 
 
 def test_missing_promotion_database_is_not_recreated(tmp_path):
@@ -190,5 +313,5 @@ def test_missing_promotion_database_is_not_recreated(tmp_path):
 
 def test_policy_manifest_is_plain_json_data():
     assert asdict(FeedbackPolicy()) == dict(
-        minimum_reviewers=2, total_weight_fraction=0.1, reviewer_weight_fraction=0.05
+        minimum_reviewers=2, family_mass_fraction=0.05, reviewer_budget_fraction=0.5
     )

@@ -37,7 +37,6 @@ from sklearn.model_selection import train_test_split
 
 import pandas as pd
 
-from src.feedback_policy import FeedbackPolicy
 from src.ingest import (
     LABEL_MAP,
     MODEL_INPUT_COLUMNS,
@@ -60,7 +59,10 @@ REQUESTED_WEIGHTS = (25.0, 60.0)
 COHORT_SIZES = (5, 50, 500, 2000)
 FAMILY_FRACTIONS = (0.01, 0.05)
 GLOBAL_FRACTION = 0.01  # O4: explicit weight within 1% of base rows, oversampling required
-POLICY = FeedbackPolicy()
+# O0, the caps in force when these options were measured. G2 later replaced them with O2
+# at 5% (ADR-002); they stay here so the record can be reproduced.
+STATUS_QUO_TOTAL_FRACTION = 0.10
+STATUS_QUO_REVIEWER_FRACTION = 0.05
 
 # Influence runs: (mode, scenario, size, weight, rf_seed). Scenarios name the source
 # family and the label the cohort is given; "baseline" adds no rows. The weight
@@ -132,10 +134,11 @@ def cohort_mass(base: dict[str, int], target: str, size: int, weight: float) -> 
 
 
 def status_quo_scale(base_rows: int, size: int, weight: float) -> float:
-    """``weight_plan`` with every correction endorsed by the same two reviewer labels."""
+    """O0, the pre-G2 ``weight_plan``, with every correction endorsed by the same two
+    reviewer labels."""
     requested = size * weight
-    total_cap = base_rows * POLICY.total_weight_fraction
-    reviewer_cap = base_rows * POLICY.reviewer_weight_fraction
+    total_cap = base_rows * STATUS_QUO_TOTAL_FRACTION
+    reviewer_cap = base_rows * STATUS_QUO_REVIEWER_FRACTION
     return min(1.0, total_cap / requested, reviewer_cap / (requested / 2))
 
 
@@ -143,7 +146,7 @@ def class_weighted_total_scale(base: dict[str, int], target: str, size: int, wei
     """Corrections' class-weighted mass at most the total fraction of all mass."""
     mass = cohort_mass(base, target, size, weight)
     others = mass["total"] - mass["corrections"]
-    fraction = POLICY.total_weight_fraction
+    fraction = STATUS_QUO_TOTAL_FRACTION
     allowed = fraction / (1 - fraction) * others
     return min(1.0, allowed / mass["corrections"])
 
@@ -381,8 +384,8 @@ def main() -> int:
         production = {f: development[f] + manifest["class_counts"][f] for f in FAMILIES}
         record["analysis"] = {
             "policy": {
-                "total_weight_fraction": POLICY.total_weight_fraction,
-                "reviewer_weight_fraction": POLICY.reviewer_weight_fraction,
+                "total_weight_fraction": STATUS_QUO_TOTAL_FRACTION,
+                "reviewer_weight_fraction": STATUS_QUO_REVIEWER_FRACTION,
             },
             "development": analyse(development),
             "production": analyse(production),

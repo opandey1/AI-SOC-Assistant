@@ -14,12 +14,56 @@ import unicodedata
 
 from src.feedback import CORRECTABLE_CLASSES, FeedbackExample, FeedbackStore
 
+# Version of the governance record in training reports; 2 is the per-family budget.
+FEEDBACK_GOVERNANCE_VERSION = 2
+
+
+def is_finite_number(value) -> bool:
+    """A real number (not a bool) that converts to a finite float.
+
+    JSON integers are unbounded, so one beyond the float range counts as invalid input
+    rather than raising ``OverflowError``.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _is_fraction(value) -> bool:
+    return is_finite_number(value) and 0 < value <= 1
+
+
+def check_budget_inputs(family_rows, requested_weight) -> None:
+    """Raise ``ValueError`` unless these are valid ``weight_plan`` inputs: a count of
+    training rows for each of the five families, and a requested weight in (0, 60]."""
+    if (
+        not isinstance(family_rows, dict)
+        or set(family_rows) != set(CORRECTABLE_CLASSES)
+        or any(
+            not isinstance(count, int) or not is_finite_number(count) or count < 0
+            for count in family_rows.values()
+        )
+    ):
+        raise ValueError("Baseline training rows are required for each of the five families.")
+    if not is_finite_number(requested_weight) or not 0 < requested_weight <= 60:
+        raise ValueError("Requested weight must be finite and in (0, 60].")
+
 
 @dataclass(frozen=True)
 class FeedbackPolicy:
+    """Consensus and per-family influence budgets (ADR-002, option O2).
+
+    The corrections aimed at one family may carry at most ``family_mass_fraction`` of
+    that family's final class-weighted training mass. One reviewer label may be
+    credited with at most ``reviewer_budget_fraction`` of each family's budget.
+    """
+
     minimum_reviewers: int = 2
-    total_weight_fraction: float = 0.10
-    reviewer_weight_fraction: float = 0.05
+    family_mass_fraction: float = 0.05
+    reviewer_budget_fraction: float = 0.5
 
     def __post_init__(self):
         if (
@@ -28,16 +72,10 @@ class FeedbackPolicy:
             or self.minimum_reviewers < 2
         ):
             raise ValueError("Consensus requires at least two reviewer labels.")
-        for value in (self.total_weight_fraction, self.reviewer_weight_fraction):
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(value)
-                or not 0 < value <= 1
-            ):
-                raise ValueError("Influence fractions must be finite values in (0, 1].")
-        if self.reviewer_weight_fraction > self.total_weight_fraction:
-            raise ValueError("Reviewer budget must not exceed the total budget.")
+        if not _is_fraction(self.family_mass_fraction) or self.family_mass_fraction == 1:
+            raise ValueError("The family mass fraction must be a finite value in (0, 1).")
+        if not _is_fraction(self.reviewer_budget_fraction):
+            raise ValueError("The reviewer budget fraction must be a finite value in (0, 1].")
 
 
 def reviewer_key(label: str) -> str:
@@ -154,44 +192,69 @@ def build_cohort(rows: list[dict], policy: FeedbackPolicy = FeedbackPolicy()) ->
 def weight_plan(
     cohort: FeedbackCohort,
     *,
-    base_rows: int,
+    family_rows: dict[str, int],
     requested_weight: float,
     policy: FeedbackPolicy = FeedbackPolicy(),
 ) -> dict:
-    if isinstance(base_rows, bool) or not isinstance(base_rows, int) or base_rows < 1:
-        raise ValueError("A positive base training row count is required.")
-    if (
-        isinstance(requested_weight, bool)
-        or not isinstance(requested_weight, (int, float))
-        or not math.isfinite(requested_weight)
-        or not 0 < requested_weight <= 60
-    ):
-        raise ValueError("Requested weight must be finite and in (0, 60].")
+    """Scale each target family's corrections to that family's own budget.
+
+    ``family_rows`` are each family's training rows before corrections are added, after
+    random oversampling. RF ``class_weight="balanced"`` gives a family's baseline rows
+    and its corrections the same class weight, so capping the corrections at f of the
+    family's final class-weighted mass caps their explicit weight at f / (1 - f) of its
+    baseline rows. Each endorsing label is credited an equal share of a correction's
+    weight; with at least two labels per correction, a reviewer budget of half the
+    family budget cannot bind before the family budget does.
+    """
+    check_budget_inputs(family_rows, requested_weight)
     if not cohort.examples:
         raise ValueError("No consensus corrections are available.")
-    contributions = defaultdict(float)
-    for example in cohort.examples:
-        for reviewer in example.reviewers:
-            contributions[reviewer] += requested_weight / len(example.reviewers)
-    total_requested = requested_weight * len(cohort.examples)
-    total_cap = base_rows * policy.total_weight_fraction
-    reviewer_cap = base_rows * policy.reviewer_weight_fraction
-    scale = min(
-        1.0,
-        total_cap / total_requested,
-        *(reviewer_cap / value for value in contributions.values()),
-    )
-    weights = [requested_weight * scale] * len(cohort.examples)
+    if any(
+        example.corrected_class not in CORRECTABLE_CLASSES
+        or len(set(example.reviewers)) < policy.minimum_reviewers
+        for example in cohort.examples
+    ):
+        raise ValueError("Every correction needs a valid family and the required reviewer labels.")
+    share = policy.family_mass_fraction / (1 - policy.family_mass_fraction)
+    families = {}
+    for family in CORRECTABLE_CLASSES:
+        examples = [example for example in cohort.examples if example.corrected_class == family]
+        if not examples:
+            continue
+        if not family_rows[family]:
+            raise ValueError(f"Corrections target {family}, which has no baseline training rows.")
+        contributions = defaultdict(float)
+        for example in examples:
+            for reviewer in example.reviewers:
+                contributions[reviewer] += requested_weight / len(example.reviewers)
+        requested = requested_weight * len(examples)
+        budget = share * family_rows[family]
+        reviewer_budget = budget * policy.reviewer_budget_fraction
+        scale = min(
+            1.0,
+            budget / requested,
+            *(reviewer_budget / value for value in contributions.values()),
+        )
+        families[family] = {
+            "corrections": len(examples),
+            "requested_total": requested,
+            "budget": budget,
+            "reviewer_budget": reviewer_budget,
+            "scale": scale,
+            "effective_weight": requested_weight * scale,
+            "total_weight": requested * scale,
+            "reviewer_weights": {
+                key: value * scale for key, value in sorted(contributions.items())
+            },
+        }
     return {
-        "base_training_weight": base_rows,
         "requested_weight": requested_weight,
-        "scale": scale,
-        "effective_weight": requested_weight * scale,
-        "total_weight": sum(weights),
-        "total_cap": total_cap,
-        "reviewer_cap": reviewer_cap,
-        "reviewer_weights": {key: value * scale for key, value in sorted(contributions.items())},
-        "sample_weights": weights,
+        "family_rows": {family: family_rows[family] for family in CORRECTABLE_CLASSES},
+        "families": families,
+        "total_weight": sum(plan["total_weight"] for plan in families.values()),
+        "sample_weights": [
+            families[example.corrected_class]["effective_weight"] for example in cohort.examples
+        ],
     }
 
 
