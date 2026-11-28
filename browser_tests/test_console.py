@@ -95,11 +95,17 @@ def layout(console, name):
     console.screenshot(name)
 
 
-def select_ticket(page, index=0):
+def select_ticket(page, index=0, *, ticket=None):
     # Streamlit's pinned canvas grid has a 35 px row pitch and a header above it.
     page.locator('[data-testid="stDataFrame"] .dvn-scroller').click(
         position={"x": 16, "y": 52 + 35 * index}
     )
+    if ticket is not None:
+        # Switching from another ticket: its form stays mounted, and nothing is stale, until
+        # the rerun starts. Wait for this ticket's card so settling waits for the new form.
+        expect(
+            page.locator(".st-key-review_detail").get_by_text(f"Ticket #{ticket}", exact=True)
+        ).to_be_visible()
     expect(page.locator(".st-key-review_disposition")).to_be_visible()
     settled(page)
 
