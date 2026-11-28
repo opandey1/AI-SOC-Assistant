@@ -357,6 +357,25 @@ def test_cli_rejects_invalid_weight(value):
     assert error.value.code == 2
 
 
+def test_cli_has_no_unbalanced_training_option():
+    with pytest.raises(SystemExit) as error:
+        build_parser().parse_args(["--no-smote"])
+    assert error.value.code == 2
+
+
+def test_governed_retraining_refuses_unbalanced_training_without_io(tmp_path):
+    from src.feedback_policy import FeedbackPolicy
+
+    with pytest.raises(ValueError, match="always uses random oversampling"):
+        retrain_from_feedback(
+            database_path=tmp_path / "missing.db",
+            output_model=tmp_path / "model.joblib",
+            feedback_policy=FeedbackPolicy(),
+            use_smote=False,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_main_saves_default_weight_and_matching_stdout_report(workspace, monkeypatch, capsys):
     for index in range(5):
         workspace.consensus(workspace.ticket(index=index))
@@ -414,7 +433,6 @@ def test_cli_runs_real_training_with_explicit_temporary_paths(workspace):
             "12.5",
             "--isolation-threshold",
             "0.6",
-            "--no-smote",
         ],
         cwd=ROOT,
         capture_output=True,
@@ -481,15 +499,19 @@ def test_real_candidate_fit_is_separate_and_has_provenance(workspace, corrected_
         rare = rows.index[rows["label"] == "buffer_overflow"]
         rows.drop(rare[1:]).to_csv(workspace.train_path, index=False, header=False)
     for index in range(5):
+        # The rejected cohort relabels a U2R test record that no training row matches. The
+        # family budget caps the corrections' weight, but trees still isolate them there.
         workspace.consensus(
-            workspace.ticket(family="dos" if accepted else "u2r", index=index), corrected_class
+            workspace.ticket(
+                family="dos" if accepted else "u2r", index=index if accepted else 2 * index + 1
+            ),
+            corrected_class,
         )
     registry = ModelRegistry(workspace.root / "registry")
     candidate = registry.create_candidate(
         database_path=workspace.store.path,
         train_path=workspace.train_path,
         test_path=workspace.test_path,
-        use_smote=False,
     )
     assert candidate["accepted"] is accepted
     assert registry.active_path() is None and registry.state()["generation"] == 0
@@ -521,7 +543,6 @@ def test_real_candidate_fit_is_separate_and_has_provenance(workspace, corrected_
             database_path=workspace.store.path,
             train_path=workspace.train_path,
             test_path=workspace.test_path,
-            use_smote=False,
         )
         assert second["active_reference_metrics"] is not None
         assert second["parent_generation"] == 1
@@ -570,7 +591,6 @@ def test_candidate_publication_rejects_changes_after_fitting(
         database_path=workspace.store.path,
         train_path=workspace.train_path,
         test_path=workspace.test_path,
-        use_smote=False,
     )
     active = registry.create_candidate(**options)
     expected_state = registry.promote(active["id"], expected_generation=0, actor="operator")
@@ -616,10 +636,7 @@ def test_dataset_mutation_during_fit_prevents_artifact_save(workspace, monkeypat
     assert not workspace.output.exists()
 
 
-@pytest.mark.parametrize("balanced", [False, True])
-def test_governed_actual_fit_uses_capped_weights_and_exact_reviews(
-    workspace, monkeypatch, balanced
-):
+def test_governed_actual_fit_uses_capped_weights_and_exact_reviews(workspace, monkeypatch):
     from src.feedback_policy import FeedbackPolicy
 
     for index in range(5):
@@ -633,13 +650,26 @@ def test_governed_actual_fit_uses_capped_weights_and_exact_reviews(
         return original(data, **kwargs)
 
     monkeypatch.setattr(train, "train_random_forest", observe)
-    report = workspace.retrain(feedback_policy=FeedbackPolicy(), use_smote=balanced)
+    report = workspace.retrain(feedback_policy=FeedbackPolicy())
     base_rows, weights = captured[0]
-    plan = report.feedback_governance["weights"]
+    governance = report.feedback_governance
+    plan = governance["weights"]
     np.testing.assert_array_equal(weights[:base_rows], np.ones(base_rows))
     np.testing.assert_allclose(weights[base_rows:], plan["sample_weights"])
-    assert plan["total_weight"] == pytest.approx(base_rows * 0.1)
-    assert all(value <= base_rows * 0.05 + 1e-12 for value in plan["reviewer_weights"].values())
+    # Oversampling gives each of the five families the majority's 12 rows.
+    assert base_rows == 60 and plan["family_rows"] == dict.fromkeys(FAMILIES, 12)
+    dos = plan["families"]["dos"]
+    assert list(plan["families"]) == ["dos"] and dos["corrections"] == 5
+    assert dos["total_weight"] == pytest.approx(0.05 / 0.95 * 12)
+    assert dos["total_weight"] / (12 + dos["total_weight"]) == pytest.approx(0.05)
+    assert plan["sample_weights"] == [dos["effective_weight"]] * 5
+    assert all(
+        value <= dos["reviewer_budget"] * (1 + 1e-12) for value in dos["reviewer_weights"].values()
+    )
+    assert governance["version"] == 2
+    assert governance["policy"] == dict(
+        minimum_reviewers=2, family_mass_fraction=0.05, reviewer_budget_fraction=0.5
+    )
     assert len(report.provenance["consensus_review_ids"]) == 10
     assert (
         load_model_artifact(workspace.output).metadata["feedback_governance"]

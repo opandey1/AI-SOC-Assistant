@@ -30,7 +30,8 @@ of findings, Claude approved the fixes, and the owner merged them.
 | Triage, Review queue, UI helpers and browser harness | Source IPs are validated before scoring; a review is saved to the drafted ticket even if new alerts arrive before "Record review" | PR #7 |
 
 PR #5 (Streamlit 1.62.0 for font serving) and the PR #6 download fix were CI-driven
-repairs outside the review cycles. Two review findings were deferred and stay open:
+repairs outside the review cycles. Two review findings were deferred; E3 stays open,
+and G2 was decided and implemented on 28 November:
 
 - **E3 — acceptance rule.** On the real data, both candidates tried added five correct
   corrections whose own predictions stayed the same. Each lowered accuracy and some
@@ -41,15 +42,20 @@ repairs outside the review cycles. Two review findings were deferred and stay op
   seed. On 27 November the owner chose Option C with a deployed-model check. Its
   [protocol](e3_protocol.md) (draft 8) was approved and merged in PR #11, and its text
   will not change. The checker, runner, fixture and recipe identities it freezes are
-  fixed only from the pilot, so the implementation and G2 can still change them. An
-  offline checker for the new rule is in review; it changes no training, promotion or
-  registry code. Switching the rule on still needs the remaining fixtures, a pilot on a
-  KDDTrain+ hold-out and a confirmatory run on new data (H1).
-- **G2 — weight caps.** The 10% total / 5% per-label caps are fractions of the 336,715
-  oversampled training rows. They first scale the explicit sample weights at a cohort of
-  1,347 consensus corrections at the default weight of 25 (562 at the maximum of 60;
-  504 and 210 without oversampling). Smaller cohorts keep their full requested sample
-  weight, and the caps act before RF class balancing.
+  fixed only from the pilot, so the implementation and G2 can still change them. The
+  offline checker for the new rule merged in PR #15; it changes no training, promotion
+  or registry code. G2 (below) changed the weight plan the protocol describes, so the
+  pilot waits for a reviewed protocol amendment. Switching the rule on still needs the
+  remaining fixtures, a pilot on a KDDTrain+ hold-out and a confirmatory run on new
+  data (H1).
+- **G2 — weight caps.** Decided and implemented on 28 November
+  ([ADR-002](g2_weight_caps.md)). Governed retraining always oversamples, and each
+  class's corrections carry at most 5% of that class's class-weighted training mass,
+  with at most half of that budget credited to one reviewer label. On the full training
+  set a class's corrections are first scaled at 142 corrections at weight 25 (60 at
+  weight 60). Before this, the 10% total / 5% per-label caps first scaled at 1,347
+  (562) and ignored class weights. Candidates trained before the change must be
+  retrained.
 
 ## Closed Tracking Items
 
@@ -91,10 +97,10 @@ included in its commits.
   real-data candidates were rejected under the zero-tolerance rule while macro F1 rose.
   Matched controls are measured (ADR-001); a revised acceptance rule, independent
   quality evaluation and rare-class floors remain open.
-- **G2:** two-label unanimous agreement, conflict holdout and explicit sample-weight caps
-  apply to governed candidates. At the real training size the caps only scale cohorts of
-  1,347 or more corrections at weight 25, and they cover explicit sample weights only,
-  not RF class balancing. Free-text labels are not authenticated (G5).
+- **G2:** two-label unanimous agreement, conflict holdout and a per-class budget apply to
+  governed candidates. The budget bounds the corrections' weight, not their effect: a
+  small cohort where the training set has no rows can still decide predictions there.
+  Free-text labels are not authenticated (G5).
 - **G4:** cohort status, conflict holdout and per-label peer-agreement diagnostics exist;
   agreeing non-correction votes no longer count as conflicts (PR #4). Peer agreement is
   not label correctness; ground-truth reliability analysis and adjudication remain open.
@@ -113,15 +119,16 @@ included in its commits.
 
 1. **Acceptance rule (E3):** the owner chose Option C in [ADR-001](e3_acceptance_rule.md),
    and the [protocol](e3_protocol.md) is approved.
-   - The offline checker and its fixtures are in review.
-   - Next come the stage-runner and replay fixtures, then the hold-out pilot; switching
-     on waits for a confirmatory dataset (H1).
-   - The pilot can run only once, so any change to the hashed recipe or checker files,
-     including G2's, has to land before it.
+   - The offline checker and its fixtures merged in PR #15.
+   - Next: a reviewed protocol amendment for G2's weight plan (§3, §8.2 and the
+     coverage of criterion (b)), then the stage-runner and replay fixtures, then the
+     hold-out pilot; switching on waits for a confirmatory dataset (H1).
+   - The pilot can run only once, so any change to the hashed recipe or checker files
+     has to land before it.
    - So does a completed route for the live model's training inputs: recovered lineage
      or a reviewed replacement. Today's legacy artifact records none.
-2. **Weight caps (G2):** make the budget bind at real data size and account for class
-   balancing, with the UI and docs stating the real thresholds.
+2. **Corrected class:** the review form should require an explicit corrected class
+   instead of defaulting to NORMAL (owner decision, 28 November).
 3. **Dependencies (E2, E9, E4, E5):** triage the 60 advisories (the Pillow set needs a
    Streamlit release that accepts Pillow 13; the LangChain set needs a stack migration),
    lock every installed package, scan the image and add a container smoke test.

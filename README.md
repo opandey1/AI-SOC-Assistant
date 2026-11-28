@@ -183,13 +183,13 @@ Reviews are append-only. Within each run, RF baseline and candidate share an Iso
 Forest fitted from the original training data; feedback updates the RF only. Weights
 must be finite, positive and at most 60.0. Governed training uses the latest decision
 per reviewer label, requires unanimous correction agreement and holds conflicts out.
-Requested weights are scaled to a 10% total / 5% per-label share of base balanced
-training weight. Free-text labels are not authenticated identities; peer agreement
-is not label accuracy or poisoning prevention. These caps apply to explicit sample
-weights, before RF class balancing; combined-weight/prior governance remains open.
-On the full NSL-KDD training set the caps first scale the explicit sample weights at a
-cohort of 1,347 consensus corrections at the default weight of 25 (562 at the maximum
-of 60); smaller cohorts keep their full requested sample weight.
+Governed training always oversamples, and the corrections for each class are scaled to
+at most 5% of that class's training weight after class balancing, with at most half of
+that budget credited to any reviewer label ([ADR-002](docs/g2_weight_caps.md)). On the
+full NSL-KDD training set a class's corrections are first scaled at 142 corrections at
+the default weight of 25 (60 at the maximum of 60). Free-text labels are not
+authenticated identities; peer agreement is not label accuracy or poisoning
+prevention, and the budget bounds the corrections' weight, not their effect.
 Candidates must not regress RF accuracy, fixed-five-class
 macro F1 or any class recall against the fresh baseline and, when present, the
 registry-selected artifact on the supplied evaluation file. Missing evaluation

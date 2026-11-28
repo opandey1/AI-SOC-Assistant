@@ -7,7 +7,6 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -22,7 +21,13 @@ from src.retrain import (
     file_digest,
     retrain_from_feedback,
 )
-from src.feedback_policy import FeedbackPolicy, locked_cohort, weight_plan
+from src.feedback_policy import (
+    FEEDBACK_GOVERNANCE_VERSION,
+    FeedbackPolicy,
+    is_finite_number,
+    locked_cohort,
+    weight_plan,
+)
 
 FAMILIES = ("normal", "dos", "probe", "r2l", "u2r")
 
@@ -37,13 +42,7 @@ def acceptance_reasons(report: dict, reference: dict | None = None) -> list[str]
     }
     for metric in ("accuracy", "macro_f1"):
         before, after = reference[metric], report[f"updated_{metric}"]
-        if not all(
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and 0 <= value <= 1
-            for value in (before, after)
-        ):
+        if not all(is_finite_number(value) and 0 <= value <= 1 for value in (before, after)):
             reasons.append(f"invalid_{metric}")
         elif after + 1e-12 < before:
             reasons.append(f"regressed_{metric}")
@@ -55,13 +54,7 @@ def acceptance_reasons(report: dict, reference: dict | None = None) -> list[str]
             reasons.append(f"missing_evaluation_class_{family}")
         before = reference["recall"].get(family)
         after = report["updated_per_class_recall"].get(family)
-        if not all(
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-            and 0 <= value <= 1
-            for value in (before, after)
-        ):
+        if not all(is_finite_number(value) and 0 <= value <= 1 for value in (before, after)):
             reasons.append(f"invalid_recall_{family}")
         elif after + 1e-12 < before:
             reasons.append(f"regressed_recall_{family}")
@@ -196,10 +189,12 @@ class ModelRegistry:
         train_path=None,
         test_path=None,
         feedback_weight=25.0,
-        use_smote=True,
         isolation_threshold=0.7,
     ) -> dict:
-        """Train in an owned staging directory; publish only a complete bundle."""
+        """Train in an owned staging directory; publish only a complete bundle.
+
+        Governed candidates always use random oversampling (ADR-002).
+        """
         from src.ingest import LABEL_MAP, MODEL_INPUT_COLUMNS, TARGET_COLUMN, load_nsl_kdd
         from src.model_store import load_model_artifact
         from src.preprocess import transform_connections
@@ -219,7 +214,6 @@ class ModelRegistry:
                 train_path=train_path,
                 test_path=test_path,
                 feedback_weight=feedback_weight,
-                use_smote=use_smote,
                 isolation_threshold=isolation_threshold,
                 feedback_policy=FeedbackPolicy(),
             )
@@ -321,30 +315,38 @@ class ModelRegistry:
                 report = json.loads(
                     (self.root / candidate_id / "report.json").read_text(encoding="utf-8")
                 )
-                governance = report.get("feedback_governance", {})
+                governance = report.get("feedback_governance")
                 policy = FeedbackPolicy()
                 if (
-                    governance.get("version") != 1
+                    not isinstance(governance, dict)
+                    or governance.get("version") != FEEDBACK_GOVERNANCE_VERSION
                     or governance.get("policy") != asdict(policy)
                     or not manifest.get("feedback_database")
                 ):
                     raise ValueError(
                         "Candidate predates the current feedback policy; train a new candidate."
                     )
+                invalid = ValueError("Candidate feedback budget or cohort is invalid.")
+                recorded_cohort, weights = governance.get("cohort"), governance.get("weights")
+                if not isinstance(recorded_cohort, dict) or not isinstance(weights, dict):
+                    raise invalid
                 cohort = guards.enter_context(locked_cohort(manifest["feedback_database"], policy))
-                if cohort.snapshot_sha256 != governance["cohort"]["snapshot_sha256"]:
+                if cohort.snapshot_sha256 != recorded_cohort.get("snapshot_sha256"):
                     raise GovernanceError(
                         GovernanceReason.REVIEWS_CHANGED,
                         "Review decisions changed; train a new candidate.",
                     )
-                weights = governance["weights"]
-                if len(cohort.examples) < MINIMUM_FEEDBACK_EXAMPLES or weights != weight_plan(
-                    cohort,
-                    base_rows=weights["base_training_weight"],
-                    requested_weight=report["feedback_weight"],
-                    policy=policy,
-                ):
-                    raise ValueError("Candidate feedback budget or cohort is invalid.")
+                try:
+                    expected = weight_plan(
+                        cohort,
+                        family_rows=weights.get("family_rows"),
+                        requested_weight=report.get("feedback_weight"),
+                        policy=policy,
+                    )
+                except (ArithmeticError, TypeError, ValueError):
+                    raise invalid from None
+                if len(cohort.examples) < MINIMUM_FEEDBACK_EXAMPLES or weights != expected:
+                    raise invalid
                 reasons = acceptance_reasons(report)
                 reference = manifest["active_reference_metrics"]
                 if reference:

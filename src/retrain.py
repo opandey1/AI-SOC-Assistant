@@ -18,8 +18,13 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, recall_score
 
-from src.feedback import FeedbackStore
-from src.feedback_policy import FeedbackPolicy, build_cohort, weight_plan
+from src.feedback import CORRECTABLE_CLASSES, FeedbackStore
+from src.feedback_policy import (
+    FEEDBACK_GOVERNANCE_VERSION,
+    FeedbackPolicy,
+    build_cohort,
+    weight_plan,
+)
 from src.governance_errors import GovernanceError, GovernanceReason
 from src.ingest import LABEL_MAP
 from src.model_store import create_model_artifact, save_model_artifact
@@ -161,6 +166,7 @@ def retrain_from_feedback(
     is not a promotion API and can replace that path; never pass an active artifact.
     Only callers supplying feedback_policy use consensus and influence budgets; all
     governed application/CLI runs supply the current policy through ModelRegistry.
+    Governed runs always use random oversampling, which the family budgets assume.
     """
 
     if not math.isfinite(feedback_weight) or feedback_weight <= 0:
@@ -173,6 +179,8 @@ def retrain_from_feedback(
         or minimum_feedback_examples < 1
     ):
         raise ValueError("minimum_feedback_examples must be a positive integer.")
+    if feedback_policy is not None and not use_smote:
+        raise ValueError("Governed retraining always uses random oversampling.")
 
     store = FeedbackStore(database_path)
     cohort = build_cohort(store.review_snapshot(), feedback_policy) if feedback_policy else None
@@ -202,14 +210,18 @@ def retrain_from_feedback(
     data = preprocess_dataset(dataset, use_smote=use_smote)
     governance = {}
     if cohort:
+        labels = np.asarray(data.y_train_balanced)
         governance = {
-            "version": 1,
+            "version": FEEDBACK_GOVERNANCE_VERSION,
             "identity": "unauthenticated_local_labels",
             "policy": asdict(feedback_policy),
             "cohort": cohort.audit(),
             "weights": weight_plan(
                 cohort,
-                base_rows=len(data.x_train_balanced),
+                family_rows={
+                    family: int(np.sum(labels == LABEL_MAP[family]))
+                    for family in CORRECTABLE_CLASSES
+                },
                 requested_weight=feedback_weight,
                 policy=feedback_policy,
             ),
@@ -377,7 +389,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test", type=Path, help="Path to KDDTest+.txt.")
     parser.add_argument("--feedback-weight", type=_positive_float, default=25.0)
     parser.add_argument("--isolation-threshold", type=float, default=0.7)
-    parser.add_argument("--no-smote", action="store_true")
     return parser
 
 
@@ -392,7 +403,6 @@ def main() -> None:
         test_path=args.test,
         feedback_weight=args.feedback_weight,
         isolation_threshold=args.isolation_threshold,
-        use_smote=not args.no_smote,
     )
     print(
         json.dumps({"candidate": candidate, "report": registry.report(candidate["id"])}, indent=2)

@@ -883,12 +883,17 @@ def candidate_view(app_workspace, isolated_review_store, monkeypatch):
         updated_macro_f1=1.0,
         feedback_weight=25,
         feedback_governance=dict(
-            version=1,
+            version=2,
             policy=dict(
-                minimum_reviewers=2, total_weight_fraction=0.1, reviewer_weight_fraction=0.05
+                minimum_reviewers=2, family_mass_fraction=0.05, reviewer_budget_fraction=0.5
             ),
             cohort=dict(snapshot_sha256=build_cohort([]).snapshot_sha256),
-            weights=dict(effective_weight=1, total_weight=5, total_cap=10),
+            weights=dict(
+                family_rows=dict.fromkeys(("normal", "dos", "probe", "r2l", "u2r"), 12),
+                families=dict(
+                    dos=dict(effective_weight=0.1263, total_weight=0.6316, budget=0.6316)
+                ),
+            ),
         ),
     )
 
@@ -918,6 +923,106 @@ def _candidate_app():
     app.segmented_control[0].set_value("Model").run()
     _assert_clean(app, "candidate controls")
     return app
+
+
+def test_candidate_weight_caption_states_each_class_budget(candidate_view):
+    app = _candidate_app()
+    assert any(
+        "Effective per-row weight by class: DOS 0.1263 (0.63 of a 0.63 budget)." in caption.value
+        for caption in app.caption
+    )
+    assert not any(
+        "predates the current feedback policy" in warning.value for warning in app.warning
+    )
+
+
+def _plan(report):
+    return report["feedback_governance"]["weights"]
+
+
+def _dos(report):
+    return _plan(report)["families"]["dos"]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda report: report["feedback_governance"].update(weights=None),
+        lambda report: report["feedback_governance"].update(weights=[]),
+        lambda report: _plan(report).clear(),
+        lambda report: _plan(report).update(families=None),
+        lambda report: _plan(report).update(families={}),
+        lambda report: _plan(report)["families"].update(dos=None),
+        lambda report: _dos(report).update(effective_weight="0.1"),
+        lambda report: _dos(report).update(effective_weight=float("nan")),
+        lambda report: _dos(report).update(effective_weight=True),
+        lambda report: _dos(report).update(budget=10**400),
+        lambda report: report["feedback_governance"].update(
+            weights=dict(effective_weight=1, total_weight=5, total_cap=10)
+        ),
+        # Inputs that promotion recomputes from: rows for exactly the five classes and the
+        # requested weight.
+        lambda report: _plan(report).pop("family_rows"),
+        lambda report: _plan(report)["family_rows"].pop("u2r"),
+        lambda report: _plan(report)["family_rows"].update(unknown=12),
+        lambda report: _plan(report)["family_rows"].update(dos=-1),
+        lambda report: _plan(report)["family_rows"].update(dos=True),
+        lambda report: _plan(report)["family_rows"].update(dos=12.0),
+        lambda report: _plan(report)["family_rows"].update(dos=10**400),
+        lambda report: _plan(report)["family_rows"].update(dos=0),
+        lambda report: _plan(report)["families"].update(unknown=dict(_dos(report))),
+        lambda report: report.pop("feedback_weight"),
+        lambda report: report.update(feedback_weight=0),
+        lambda report: report.update(feedback_weight=61),
+        lambda report: report.update(feedback_weight="25"),
+        lambda report: report.update(feedback_weight=10**400),
+    ],
+)
+def test_malformed_current_weight_plan_is_flagged_and_not_promotable(candidate_view, tamper):
+    tamper(candidate_view.report)
+    app = _candidate_app()
+    assert any(
+        "weight plan or cohort record is missing or invalid" in warning.value
+        for warning in app.warning
+    )
+    assert not any("per-row weight" in caption.value for caption in app.caption)
+    app.text_input(key="model_operator").set_value("alice").run()
+    app.checkbox[0].check().run()
+    assert app.button(key="promote_candidate").disabled
+    candidate_view.promotion.assert_not_called()
+
+
+@pytest.mark.parametrize("record", [None, [], "version 2"])
+def test_malformed_governance_record_is_treated_as_old_policy(candidate_view, record):
+    candidate_view.report["feedback_governance"] = record
+    app = _candidate_app()
+    assert any("predates the current feedback policy" in warning.value for warning in app.warning)
+    app.text_input(key="model_operator").set_value("alice").run()
+    app.checkbox[0].check().run()
+    assert app.button(key="promote_candidate").disabled
+
+
+def test_missing_cohort_record_is_flagged_and_not_promotable(candidate_view):
+    candidate_view.report["feedback_governance"]["cohort"] = None
+    app = _candidate_app()
+    assert any("cohort record is missing or invalid" in warning.value for warning in app.warning)
+    app.text_input(key="model_operator").set_value("alice").run()
+    app.checkbox[0].check().run()
+    assert app.button(key="promote_candidate").disabled
+
+
+def test_version_one_candidate_report_still_renders_with_policy_warning(candidate_view):
+    candidate_view.report["feedback_governance"].update(
+        version=1,
+        policy=dict(minimum_reviewers=2, total_weight_fraction=0.1, reviewer_weight_fraction=0.05),
+        weights=dict(effective_weight=1, total_weight=5, total_cap=10),
+    )
+    app = _candidate_app()
+    assert any("total 5.00 / 10.00 budget" in caption.value for caption in app.caption)
+    assert any("predates the current feedback policy" in warning.value for warning in app.warning)
+    app.text_input(key="model_operator").set_value("alice").run()
+    app.checkbox[0].check().run()
+    assert app.button(key="promote_candidate").disabled
 
 
 def test_promotion_requires_operator_confirmation_and_resets_after_change(candidate_view):
