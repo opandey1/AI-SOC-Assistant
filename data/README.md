@@ -13,7 +13,7 @@ Record the source URL and download date for every copy. The files used to valida
 
 ```text
 KDDTrain+.txt  1b86d2f957b33082081bba410fe129b475efebcc13c9014c3f447c8271aadf95
-KDDTest+.txt   fa46b0935342616aa83b7c2578db355b6a7aabbc492248172c7a1e8b7ab8f84
+KDDTest+.txt   fa46b0935342616aa83b7c2578db355b6a7aaabbc492248172c7a1e8b7ab8f84
 ```
 
 Verify them on macOS or Linux:
