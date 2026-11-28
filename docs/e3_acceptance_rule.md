@@ -1,10 +1,14 @@
 # ADR-001: Candidate Acceptance Rule (E3)
 
 **Status:** Accepted by the owner on 27 November 2026: Option C with a deployed-model
-check (see [Decisions](#decisions-owner-27-november-2026)). The protocol is
-[`e3_protocol.md`](e3_protocol.md), draft 8, awaiting review. Switching it on requires
-checker fixtures, a pilot on the hold-out and a confirmatory run on new data (H1).
-Nothing is implemented, and today's zero-tolerance gate stays in force.
+check (see [Decisions](#decisions-owner-27-november-2026)). The protocol,
+[`e3_protocol.md`](e3_protocol.md) (draft 8), was approved and merged in PR #11. Its
+text will not be edited, so this record holds its status from now on (see
+[Protocol](#protocol)). The protocol's operational freeze of the checker, runner,
+fixture and recipe identities (§9.3) starts only at the pilot; until then
+implementation and G2 can still change them. An offline checker is in review.
+Switching the rule on still requires the remaining fixtures, a pilot on the hold-out
+and a confirmatory run on new data (H1). Today's zero-tolerance gate stays in force.
 **Date:** 26 November 2026 (measurements); 27 November 2026 (decisions and protocol)
 **Deciders:** repository owner; reviewed under `AGENT-PROTOCOL.md`
 
@@ -237,8 +241,8 @@ to confirm the pilot's pass thresholds with the owner.
 ## Protocol
 
 The protocol for the chosen rule is [`e3_protocol.md`](e3_protocol.md), draft 8,
-awaiting review. Draft 1 was a "Frozen Protocol" section in this record. Codex's
-review of it found four problems:
+approved and frozen (below). Draft 1 was a "Frozen Protocol" section in this record.
+Codex's review of it found four problems:
 
 - its control candidates were labelled by the rule under test;
 - the hold-out can only give pilot evidence;
@@ -295,8 +299,44 @@ more:
 Draft 7 addressed those. Codex's review of draft 7 found one more: the owner-committed
 pre-score anchor was required but neither checked by the stage runner nor replayed at
 activation, and the fit manifest's training identities and cohorts were stored
-without being checked against the frozen design. Draft 8 addresses it. Earlier drafts
+without being checked against the frozen design. Draft 8 addressed it. Earlier drafts
 remain in Git history and `HANDOFF.md`.
+
+### Approval (27 November 2026)
+
+Codex approved draft 8 with no findings (`HANDOFF.md`, 2026-11-27T12:28Z), and the
+owner merged it in PR #11 (`99a7a4a`). Under protocol §3 the document is not edited
+again before activation, so its own header still reads "Draft for review". Its status
+is kept here instead.
+
+The approved text is not yet the §9.3 freeze. That freeze fixes `protocol_id`,
+`fixtures_id`, `recipe_id` and `checker_id` from the pilot until activation.
+`protocol_id` also covers a stage configuration and runner modules that do not exist
+yet, and the checker, fixtures and recipe will keep changing with the implementation
+and with G2 until the pilot starts.
+
+The approving review added two readings for the build:
+
+- "In the repository's history" means reachable from the approved branch tip, not
+  merely an existing Git object.
+- The anchor enforces the order of a trusted local workflow. It proves neither Git
+  authorship nor time.
+
+### Implementation Progress
+
+- **Offline checker** (protocol §5): `src/acceptance_v2.py`, with synthetic-prediction
+  fixtures in `tests/test_acceptance_v2.py`. In review.
+  - The module is pure: it fits nothing, loads no model and touches neither training,
+    promotion nor the registry.
+  - Its file SHA-256 is the protocol's `checker_id`, which is not frozen until the
+    pilot.
+  - Evaluation rows must have exactly 41 scalar, finite inputs and a family label
+    before anything is hashed.
+- **Still to build before the pilot:**
+  - the §8.2 labelling-rule fixtures;
+  - the stage runner with its anchor check;
+  - the §9 evidence records and activation replay;
+  - the registry's rule state.
 
 ## Reproduce
 

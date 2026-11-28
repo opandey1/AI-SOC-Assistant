@@ -38,9 +38,13 @@ repairs outside the review cycles. Two review findings were deferred and stay op
   These are two observed trade-offs under the current rule. Matched controls measured
   afterwards ([ADR-001](e3_acceptance_rule.md)) show that the current rule also rejects
   every seed-only refit, and that the same cohort can pass or fail depending on the
-  seed. On 27 November the owner chose Option C with a deployed-model check; its
-  protocol ([draft 8](e3_protocol.md)) awaits review. Switching it on needs checker
-  fixtures, a pilot on a KDDTrain+ hold-out and a confirmatory run on new data (H1).
+  seed. On 27 November the owner chose Option C with a deployed-model check. Its
+  [protocol](e3_protocol.md) (draft 8) was approved and merged in PR #11, and its text
+  will not change. The checker, runner, fixture and recipe identities it freezes are
+  fixed only from the pilot, so the implementation and G2 can still change them. An
+  offline checker for the new rule is in review; it changes no training, promotion or
+  registry code. Switching the rule on still needs the remaining fixtures, a pilot on a
+  KDDTrain+ hold-out and a confirmatory run on new data (H1).
 - **G2 — weight caps.** The 10% total / 5% per-label caps are fractions of the 336,715
   oversampled training rows. They first scale the explicit sample weights at a cohort of
   1,347 consensus corrections at the default weight of 25 (562 at the maximum of 60;
@@ -107,13 +111,15 @@ included in its commits.
 
 ## Next Work, In Order
 
-1. **Acceptance rule (E3):** the owner chose Option C in [ADR-001](e3_acceptance_rule.md).
-   After the [protocol](e3_protocol.md) review: test the checker against fixtures, run
-   the hold-out pilot, then wait for a confirmatory dataset (H1) before switching on.
-   The pilot can run only once, so any change to the hashed recipe or checker files,
-   including G2's, has to land before it. So does a completed route for the live
-   model's training inputs (recovered lineage or a reviewed replacement); today's
-   legacy artifact records none.
+1. **Acceptance rule (E3):** the owner chose Option C in [ADR-001](e3_acceptance_rule.md),
+   and the [protocol](e3_protocol.md) is approved.
+   - The offline checker and its fixtures are in review.
+   - Next come the stage-runner and replay fixtures, then the hold-out pilot; switching
+     on waits for a confirmatory dataset (H1).
+   - The pilot can run only once, so any change to the hashed recipe or checker files,
+     including G2's, has to land before it.
+   - So does a completed route for the live model's training inputs: recovered lineage
+     or a reviewed replacement. Today's legacy artifact records none.
 2. **Weight caps (G2):** make the budget bind at real data size and account for class
    balancing, with the UI and docs stating the real thresholds.
 3. **Dependencies (E2, E9, E4, E5):** triage the 60 advisories (the Pillow set needs a
